@@ -454,6 +454,16 @@ class WorldManager {
                 }
             ]
         };
+
+        // Aumenta em 20% a vida e o dano de todos os inimigos, mantendo
+        // as proporções de dificuldade entre as áreas e tipos de inimigo.
+        for (const area of Object.values(this.areas)) {
+            for (const enemy of area.enemies || []) {
+                enemy.maxHp = Math.round(enemy.maxHp * 1.2);
+                enemy.hp = Math.round(enemy.hp * 1.2);
+                enemy.baseDamage = Math.round(enemy.baseDamage * 1.2);
+            }
+        }
     }
 
     getCurrentArea() {
