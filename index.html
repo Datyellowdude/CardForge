@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CardForge</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="gameContainer">
+        <!-- TOP HUD -->
+        <header id="hud">
+            <div class="hud-group">
+                <div class="hud-stat">
+                    <span>❤️</span>
+                    <div class="hp-bar-container">
+                        <div id="hudHpFill" class="hp-fill" style="width: 100%;"></div>
+                        <span id="hudHpText" class="hp-text">100 / 100</span>
+                    </div>
+                </div>
+                <div class="hud-stat level-badge"><span>⭐</span><span id="hudLevelText">Nv. 1</span></div>
+                <div class="hud-stat gold-badge">
+                    <span>🪙</span>
+                    <span id="hudGoldText">50</span>
+                </div>
+                <div class="area-badge" id="hudAreaText">Vila de Solária</div>
+            </div>
+
+            <div class="hud-group">
+                <button id="btnOpenCodex" class="hud-btn codex-open-btn" title="Livro de cartas e inimigos" aria-label="Abrir livro de cartas e inimigos">📖</button>
+                <button id="btnOpenDeck" class="hud-btn" title="Atalho: [B]">📜 Baralho [B]</button>
+                <button id="btnSaveGame" class="hud-btn">💾 Salvar</button>
+                <button id="btnToggleSfx" class="hud-btn">🔊 Som: ON</button>
+                <button id="btnToggleMusic" class="hud-btn">🎵 Música: ON</button>
+            </div>
+        </header>
+
+        <!-- EXPLORATION CANVAS (FULL SCREEN) -->
+        <main id="mainViewport">
+            <canvas id="worldCanvas" width="800" height="560"></canvas>
+        </main>
+
+        <!-- FOOTER CONTROLS HELPER -->
+        <footer id="footerControls">
+            <span>🎮 <b>Controles:</b> [WASD / Setas] Mover &bull; [E / Espaço] Interagir &bull; [B] Ver Baralho &bull; ⚔️ <b>Combate:</b> Ordene da Esquerda ➔ Direita para Combos!</span>
+        </footer>
+
+        <!-- TELA DE TÍTULO -->
+        <section id="titleScreen">
+            <!-- CENÁRIO ANIMADO DO MENU -->
+            <canvas id="titleCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:0;"></canvas>
+            <!-- CONTEÚDO DO MENU SOBRE O CENÁRIO -->
+            <div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;">
+                <h1 class="title-heading">CardForge</h1>
+                <p class="title-subheading">RPG 2D de Cartas e Exploração Medieval com Combos em Sequência</p>
+                <div class="title-menu-btns">
+                    <button id="btnNewGame" class="btn-game">Novo Jogo</button>
+                    <button id="btnContinue" class="btn-game disabled" disabled>Continuar Aventura</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ESCOLHA DE CLASSE AO INICIAR UMA NOVA PARTIDA -->
+        <section id="classSelectModal" class="modal-overlay hidden" aria-labelledby="classSelectTitle">
+            <div class="modal-window class-select-window">
+                <div class="modal-header">
+                    <span id="classSelectTitle" class="modal-title">Escolha sua classe</span>
+                    <button id="classSelectBackBtn" class="modal-close-btn" type="button" aria-label="Voltar ao menu">✕</button>
+                </div>
+                <div class="modal-content class-select-content">
+                    <button id="chooseKnightBtn" class="class-option" type="button">
+                        <span class="class-option-title">⚔️ Cavaleiro</span>
+                        <img src="assets/player/knight.png" alt="Cavaleiro de armadura vermelha" class="class-option-sprite">
+                        <span class="class-option-cards">Afiar · Espada ×2 · Escudo</span>
+                    </button>
+                    <button id="chooseMageBtn" class="class-option" type="button">
+                        <span class="class-option-title">✨ Mago</span>
+                        <img src="assets/characters/mage.png" alt="Mago de capuz vermelho" class="class-option-sprite">
+                        <span class="class-option-cards">Bola de Fogo ×2 · Oração de Cura · Concentração</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- TELA DE COMBATE (ESTILO POKÉMON FULL-SCREEN COM UI FLUTUANTE) -->
+        <section id="combatScreen" class="hidden">
+            <!-- CANVAS FULL-SCREEN DA BATALHA (cobre a cena inteira) -->
+            <canvas id="battleSceneCanvas" width="800" height="640"></canvas>
+
+            <!-- Placas de status: jogador no alto à esquerda e inimigo à direita -->
+            <div id="enemyBattlePlate" class="pokemon-status-plate enemy-plate">
+                <div class="plate-header">
+                    <span id="enemyBattleName" class="plate-name">Goblin Salteador</span>
+                    <span id="enemyBattleLevel" class="plate-lvl">Inimigo</span>
+                </div>
+                <div class="plate-hp-row">
+                    <span class="hp-label">HP</span>
+                    <div class="plate-hp-bar">
+                        <div id="enemyBattleHpFill" class="plate-hp-fill" style="width: 100%;"></div>
+                    </div>
+                </div>
+                <div class="plate-sub">
+                    <span id="enemyBattleHpText" class="plate-hp-num">48 / 48</span>
+                    <span id="enemyBattleIntent" class="plate-intent">⚔️ 13 Dano</span>
+                </div>
+                <div id="enemyBattleStatuses" class="plate-statuses"></div>
+            </div>
+
+            <!-- Jogador: canto superior esquerdo da cena -->
+            <div id="playerBattlePlate" class="pokemon-status-plate player-plate">
+                <div class="plate-header">
+                    <span id="combatPlayerClassName" class="plate-name">🛡️ Cavaleiro de Solária</span>
+                    <span id="combatPlayerShieldText" class="plate-shield"></span>
+                </div>
+                <div class="plate-hp-row">
+                    <span class="hp-label">HP</span>
+                    <div class="plate-hp-bar">
+                        <div id="combatPlayerHpFill" class="plate-hp-fill" style="width: 100%;"></div>
+                    </div>
+                </div>
+                <div class="plate-sub">
+                    <span id="combatPlayerHpText" class="plate-hp-num">100 / 100</span>
+                    <div id="combatPlayerBuffs" class="combat-buffs-list"></div>
+                </div>
+            </div>
+
+            <!-- Seletor de inimigo (se múltiplos) -->
+            <div id="combatEnemySelector" class="enemy-target-selector"></div>
+
+            <!-- PAINEL INFERIOR FLUTUANTE (SEQUÊNCIA + MÃO) -->
+            <div class="combat-bottom-ui">
+                <!-- Painel da Sequência -->
+                <div class="combat-sequence-panel">
+                    <div class="sequence-header">
+                        <span>⚡ SEQUÊNCIA (Esq ➔ Dir)</span>
+                        <span style="font-size: 10px; color: #fde047;">★ Posicione e INICIE!</span>
+                    </div>
+                    <div class="sequence-action-container">
+                        <div class="sequence-slots-row" id="combatSequenceRow"></div>
+                        <button id="btnExecuteTurn" class="btn-game btn-execute-prominent" disabled title="Executar turno agora!">
+                            <span class="btn-icon">⚔️</span>
+                            <span class="btn-text">INICIAR<br><b>SEQUÊNCIA</b></span>
+                        </button>
+                    </div>
+                    <div class="sequence-combo-preview" id="combatComboPreview">
+                        <i>Nenhuma carta alinhada. Monte sua sequência!</i>
+                    </div>
+                </div>
+
+                <!-- Mão de Cartas -->
+                <div class="combat-hand-panel">
+                    <div class="combat-hand-row" id="combatHandRow"></div>
+                    <div class="combat-action-row">
+                        <button id="btnClearSequence" class="btn-game btn-clear" style="background: #334155;">🔄 Limpar</button>
+                        <button id="btnExecuteTurnAlt" class="btn-game btn-execute-secondary" disabled>⚔️ Iniciar [ENTER]</button>
+                        <div class="combat-log-box" id="combatLogBox"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div id="combatTutorial" class="combat-tutorial hidden" role="dialog" aria-modal="true" aria-label="Tutorial de combate">
+            <div id="combatTutorialDimmer" class="tutorial-dimmer"></div>
+            <div id="combatTutorialSpotlight" class="tutorial-spotlight hidden"></div>
+            <div id="combatTutorialSpotlightSecondary" class="tutorial-spotlight hidden"></div>
+            <button id="combatTutorialSkip" class="tutorial-skip" type="button">Pular tutorial</button>
+            <div class="tutorial-dialog">
+                <p id="combatTutorialText"></p>
+                <span class="tutorial-continue-hint">Clique ou aperte E para continuar</span>
+                <button class="tutorial-next" type="button">Continuar</button>
+            </div>
+        </div>
+
+        <div id="cardHoverTooltip" class="card-hover-tooltip hidden" role="tooltip"></div>
+
+        <!-- MODAL: BARALHO & CONFIGURAÇÃO DA SEQUÊNCIA PADRÃO -->
+        <div id="deckModal" class="modal-overlay hidden">
+            <div class="modal-window">
+                <div class="modal-header">
+                    <span class="modal-title">Coleção de Cartas & Sequência de Batalha</span>
+                    <button id="deckCloseBtn" class="modal-close-btn">✕</button>
+                </div>
+                <div class="modal-content">
+                    <!-- SEÇÃO: SEQUÊNCIA PADRÃO PRÉ-DEFINIDA -->
+                    <div class="default-sequence-config-box">
+                        <div class="default-seq-header">
+                            <span class="default-seq-title">⚔️ Sequência Padrão de Batalha (Início Automático)</span>
+                            <span class="default-seq-desc">Toda batalha iniciará automaticamente com esta sequência já montada para você!</span>
+                        </div>
+                        <div class="default-seq-slots" id="defaultSeqSlots">
+                            <!-- 4 slots configuráveis pré-definidos -->
+                        </div>
+                        <div class="default-seq-tip">💡 <b>Dica:</b> Clique em qualquer carta da sua coleção abaixo para colocá-la nesta sequência inicial!</div>
+                    </div>
+
+                    <!-- COLEÇÃO COMPLETA -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+                        <span id="deckCountText" style="font-weight: 700; color: #cbd5e1;">Todas as Cartas no Baralho: 8</span>
+                        <div class="deck-filters">
+                            <button class="deck-filter-btn active" data-type="all">Todas</button>
+                            <button class="deck-filter-btn" data-type="ataque">Ataque</button>
+                            <button class="deck-filter-btn" data-type="magia">Magia</button>
+                            <button class="deck-filter-btn" data-type="preparacao">Preparação</button>
+                            <button class="deck-filter-btn" data-type="defesa">Defesa</button>
+                            <button class="deck-filter-btn" data-type="utilidade">Utilidade</button>
+                        </div>
+                    </div>
+                    <div id="deckGrid" class="deck-grid"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- LIVRO DE CARTAS E INIMIGOS -->
+        <div id="codexModal" class="modal-overlay hidden">
+            <div class="modal-window codex-window">
+                <div class="modal-header">
+                    <span class="modal-title">📖 Livro do Aventureiro</span>
+                    <button id="codexCloseBtn" class="modal-close-btn" aria-label="Fechar livro">✕</button>
+                </div>
+                <div class="codex-tabs">
+                    <button id="codexCardsTab" class="codex-tab active" type="button">Cartas</button>
+                    <button id="codexEnemiesTab" class="codex-tab" type="button">Inimigos</button>
+                    <span id="codexCount" class="codex-count"></span>
+                </div>
+                <div id="codexContent" class="modal-content codex-grid"></div>
+            </div>
+        </div>
+
+        <!-- MODAL: FERREIRO -->
+        <div id="blacksmithModal" class="modal-overlay hidden">
+            <div class="modal-window">
+                <div class="modal-header">
+                    <span class="modal-title">🔨 Ferraria</span>
+                    <button id="blacksmithCloseBtn" class="modal-close-btn">✕</button>
+                </div>
+                <div class="modal-content">
+                    <p style="color: #94a3b8; font-size: 13px;">"Aprimore suas armas e cartas para aumentar seus danos e desbloquear novas sinergias!"</p>
+                    <div id="blacksmithGrid" class="blacksmith-grid"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: LOJA -->
+        <div id="shopModal" class="modal-overlay hidden">
+            <div class="modal-window shop-modal-window">
+                <div class="modal-header">
+                    <span class="modal-title">🛒 Emporium da Mariah</span>
+                    <button id="shopCloseBtn" class="modal-close-btn">✕</button>
+                </div>
+                <div class="modal-content shop-modal-content">
+                    <p style="color: #94a3b8; font-size: 13px;">"Itens de alta classe para bravos aventureiros. Moedas na mão, cartas no bolso!"</p>
+                    <div id="shopGrid" class="shop-grid"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: DIÁLOGOS / EVENTOS -->
+        <div id="dialogModal" class="modal-overlay hidden">
+            <div class="modal-window" style="width: 500px;">
+                <div class="modal-header">
+                    <span id="dialogSpeaker" class="modal-title">NPC</span>
+                    <button id="dialogCloseBtn" class="modal-close-btn">✕</button>
+                </div>
+                <div class="modal-content">
+                    <div id="dialogContent" class="dialog-content"></div>
+                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+                        <button id="dialogActionBtn" class="btn-game" style="display: none;"></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: RECOMPENSA DE VITÓRIA (DRAFT 3 CARTAS) -->
+        <div id="rewardModal" class="modal-overlay hidden">
+            <div class="modal-window" style="width: 640px; text-align: center;">
+                <div class="modal-header">
+                    <span class="modal-title" style="color: #4ade80;">🏆 VITÓRIA EM COMBATE!</span>
+                </div>
+                <div class="modal-content" style="align-items: center;">
+                    <div id="rewardGoldText" style="font-size: 12px; line-height: 1.8; font-weight: 800; color: var(--gold);">+35 🪙 Moedas Obtidas!</div>
+                    <p style="color: #94a3b8; font-size: 13px; margin-top: 4px;">Escolha 1 carta para adicionar permanentemente ao seu baralho:</p>
+                    
+                    <div id="rewardCardsRow" class="reward-cards-row"></div>
+
+                    <button id="btnSkipReward" class="btn-game" style="background: #334155; margin-top: 8px;">Pular Recompensa de Carta</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: DERROTA -->
+        <div id="defeatModal" class="modal-overlay hidden">
+            <div class="modal-window" style="width: 480px; text-align: center;">
+                <div class="modal-header" style="background: #450a0a;">
+                    <span class="modal-title" style="color: #f87171;">💀 VOCÊ CAIU EM BATALHA</span>
+                </div>
+                <div class="modal-content" style="align-items: center; gap: 16px;">
+                    <p style="color: #fca5a5; font-size: 14px;">Suas forças se esvaíram diante dos inimigos... mas os aldeões resgataram você a tempo!</p>
+                    <button id="btnRespawn" class="btn-game" style="background: #b91c1c;">Reviver na Vila de Solária</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- TOASTS DE NOTIFICAÇÃO -->
+        <div id="toastContainer"></div>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script src="js/audio.js"></script>
+    <script src="js/cards.js"></script>
+    <script src="js/player.js"></script>
+    <script src="js/world.js"></script>
+    <script src="js/combat.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html>
