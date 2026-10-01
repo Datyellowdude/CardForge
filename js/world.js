@@ -63,6 +63,8 @@ class WorldManager {
                     y: 190,
                     color: '#0284c7',
                     sprite: 'merchant',
+                    spriteHeight: 68,
+                    idleAnimation: true,
                     dialogue: 'Olá, viajante! Tenho poções, equipamentos e cartas especiais para sua jornada.'
                 },
                 {
@@ -74,6 +76,8 @@ class WorldManager {
                     color: '#65a30d',
                     sprite: 'sage',
                     spriteHeight: 58,
+                    patrolRadius: 72,
+                    walkSpeed: 30,
                     dialogue: 'Lembre-se: em combate, a ORDEM das suas cartas define seu destino! Use "Afiar" antes de armas como a Espada para golpear com +50% de dano!'
                 }
             ],
@@ -234,7 +238,7 @@ class WorldManager {
                     name: 'Aranha Venenosa',
                     icon: '🕷️',
                     sprite: 'spider.png',
-                    spriteFacesLeft: true,
+                    spriteFacesLeft: false,
                     x: 270,
                     y: 280,
                     patrolRadius: 70,
@@ -251,7 +255,7 @@ class WorldManager {
                     name: 'Aranha Venenosa',
                     icon: '🕷️',
                     sprite: 'spider.png',
-                    spriteFacesLeft: true,
+                    spriteFacesLeft: false,
                     spriteSize: 42,
                     x: 480,
                     y: 95,
@@ -269,7 +273,7 @@ class WorldManager {
                     name: 'Aranha Venenosa',
                     icon: '🕷️',
                     sprite: 'spider.png',
-                    spriteFacesLeft: true,
+                    spriteFacesLeft: false,
                     spriteSize: 42,
                     x: 385,
                     y: 440,
@@ -287,12 +291,17 @@ class WorldManager {
                     name: 'Goblin Armadurado',
                     icon: '👹',
                     sprite: 'armored_goblin.png',
+                    spriteFacesLeft: true,
+                    spriteSize: 56,
+                    battleSpriteSize: 104,
                     x: 480,
                     y: 270,
                     patrolRadius: 60,
                     hp: 92,
                     maxHp: 92,
-                    goldReward: 42,
+                    goldReward: 75,
+                    cardRewardPicks: 2,
+                    damageReduction: 0.5,
                     baseDamage: 20,
                     actions: ['heavy_cleave', 'shield_up'],
                     color: '#ca8a04'
@@ -333,6 +342,7 @@ class WorldManager {
                     name: 'Guardião Esqueleto',
                     icon: '💀',
                     sprite: 'skeleton.png',
+                    spriteFacesLeft: true,
                     spriteSize: 54,
                     battleSpriteSize: 96,
                     x: 230,
@@ -351,6 +361,7 @@ class WorldManager {
                     name: 'Necromante das Sombras',
                     icon: '🧙‍♂️',
                     sprite: 'necromancer.png',
+                    spriteFacesLeft: true,
                     spriteSize: 54,
                     battleSpriteSize: 96,
                     x: 540,
@@ -358,7 +369,9 @@ class WorldManager {
                     patrolRadius: 65,
                     hp: 80,
                     maxHp: 80,
-                    goldReward: 48,
+                    goldReward: 85,
+                    cardRewardPicks: 2,
+                    summonSkeletonChance: 0.33,
                     baseDamage: 21,
                     actions: ['shadow_bolt', 'curse'],
                     color: '#7c3aed'
@@ -369,6 +382,7 @@ class WorldManager {
                     name: 'Guardião Esqueleto',
                     icon: '💀',
                     sprite: 'skeleton.png',
+                    spriteFacesLeft: true,
                     spriteSize: 54,
                     battleSpriteSize: 96,
                     x: 200,
@@ -387,6 +401,7 @@ class WorldManager {
                     name: 'Guardião Esqueleto',
                     icon: '💀',
                     sprite: 'skeleton.png',
+                    spriteFacesLeft: true,
                     spriteSize: 54,
                     battleSpriteSize: 96,
                     x: 560,
@@ -464,6 +479,9 @@ class WorldManager {
                 enemy.baseDamage = Math.round(enemy.baseDamage * 1.2);
             }
         }
+        const goblinKing = this.areas.ruinas.enemies.find(enemy => enemy.id === 'boss_rei_goblin');
+        goblinKing.maxHp = goblinKing.hp = 400;
+        goblinKing.baseDamage = 60;
     }
 
     getCurrentArea() {
@@ -471,7 +489,7 @@ class WorldManager {
     }
 
     // Checagem de colisões com paredes, obstáculos e limites
-    checkCollision(x, y, radius = 16) {
+    checkCollision(x, y, radius = 16, ignoreNpcId = null) {
         const area = this.getCurrentArea();
 
         // Limites externos da tela
@@ -494,6 +512,7 @@ class WorldManager {
 
         // NPCs agem como obstáculos sólidos
         for (const npc of area.npcs) {
+            if (npc.id === ignoreNpcId) continue;
             const dx = x - npc.x;
             const dy = y - npc.y;
             if (Math.hypot(dx, dy) < radius + 14) {
@@ -600,6 +619,49 @@ class WorldManager {
             } else {
                 enemy.vx = -enemy.vx;
                 enemy.vy = -enemy.vy;
+            }
+        }
+    }
+
+    updateNpcs(deltaTime) {
+        const area = this.getCurrentArea();
+        for (const npc of area.npcs) {
+            if (!npc.patrolRadius) continue;
+            if (!npc.aiInitialized) {
+                npc.aiInitialized = true;
+                npc.startX = npc.x;
+                npc.startY = npc.y;
+                npc.moveWait = Math.random() * 1.5;
+                npc.moveRemaining = 0;
+                npc.animTime = Math.random() * 10;
+                npc.vx = 0;
+                npc.vy = 0;
+            }
+
+            npc.animTime += deltaTime;
+            npc.isMoving = false;
+            if (npc.moveRemaining <= 0) {
+                npc.moveWait -= deltaTime;
+                if (npc.moveWait <= 0) {
+                    const angle = Math.random() * Math.PI * 2;
+                    npc.vx = Math.cos(angle) * (npc.walkSpeed || 26);
+                    npc.vy = Math.sin(angle) * (npc.walkSpeed || 26);
+                    npc.moveRemaining = 0.8 + Math.random() * 1.2;
+                }
+                continue;
+            }
+
+            const nextX = npc.x + npc.vx * deltaTime;
+            const nextY = npc.y + npc.vy * deltaTime;
+            const withinPatrol = Math.hypot(nextX - npc.startX, nextY - npc.startY) <= npc.patrolRadius;
+            if (withinPatrol && !this.checkCollision(nextX, nextY, 10, npc.id)) {
+                npc.x = nextX;
+                npc.y = nextY;
+                npc.isMoving = true;
+                npc.moveRemaining -= deltaTime;
+            } else {
+                npc.moveRemaining = 0;
+                npc.moveWait = 0.6 + Math.random() * 0.8;
             }
         }
     }

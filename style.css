@@ -167,6 +167,82 @@ html, body {
     image-rendering: pixelated;
 }
 
+#touchControls { display: none; }
+
+@media (max-width: 900px) and (pointer: coarse) {
+    #touchControls {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        display: block;
+        pointer-events: none;
+    }
+
+    .touch-joystick {
+        position: absolute;
+        left: max(16px, env(safe-area-inset-left));
+        bottom: max(18px, env(safe-area-inset-bottom));
+        width: 132px;
+        height: 132px;
+        border: 2px solid rgba(255, 246, 212, 0.7);
+        border-radius: 50%;
+        background: rgba(20, 15, 25, 0.42);
+        box-shadow: inset 0 0 0 10px rgba(255, 246, 212, 0.08), 0 3px 12px #0008;
+        pointer-events: auto;
+        touch-action: none;
+    }
+
+    .touch-joystick-thumb {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 54px;
+        height: 54px;
+        border: 2px solid #fff6d4;
+        border-radius: 50%;
+        background: rgba(243, 231, 173, 0.78);
+        box-shadow: 0 2px 8px #0009;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+    }
+
+    .touch-interact {
+        position: absolute;
+        right: max(18px, env(safe-area-inset-right));
+        bottom: max(32px, env(safe-area-inset-bottom));
+        min-width: 104px;
+        min-height: 64px;
+        border: 2px solid #fff6d4;
+        border-radius: 50%;
+        background: rgba(243, 231, 173, 0.9);
+        color: #493b18;
+        font: 8px 'Press Start 2P', monospace;
+        box-shadow: 0 3px 12px #0009;
+        pointer-events: auto;
+        touch-action: manipulation;
+    }
+
+    .touch-interact:disabled {
+        opacity: 0.55;
+    }
+
+    #hud {
+        height: auto;
+        min-height: 72px;
+        padding: 5px 7px;
+        gap: 5px;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .hud-group { justify-content: space-between; gap: 5px; }
+    .hud-stat { font-size: 10px; gap: 3px; }
+    .hp-bar-container { width: clamp(76px, 24vw, 120px); }
+    .area-badge { font-size: 8px; padding: 4px 6px; }
+    .hud-btn { padding: 5px 6px; font-size: 8px; }
+    #footerControls { height: 25px; font-size: 7px; padding: 0 5px; text-align: center; }
+}
+
 /* TELA DE TÍTULO (CENÁRIO DOURADO MEDIEVAL DENSAMENTE ILUMINADO) */
 #titleScreen {
     position: absolute;
@@ -428,6 +504,9 @@ html, body {
     pointer-events: none;
 }
 
+#combatScreen.hidden { display: none !important; }
+#combatScreen:not(.hidden) { display: flex; }
+
 #battleSceneCanvas {
     position: absolute;
     top: 0;
@@ -438,6 +517,7 @@ html, body {
     display: block;
     image-rendering: pixelated;
     z-index: 1;
+    background: #160d12;
 }
 
 /* PLACAS DE STATUS FLUTUANTES ESTILO POKÉMON */
@@ -611,6 +691,9 @@ html, body {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.24);
+    padding-bottom: 8px;
+    margin-bottom: 2px;
 }
 
 .sequence-header {
@@ -630,16 +713,22 @@ html, body {
 }
 
 .sequence-slots-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(4, 112px);
     justify-content: center;
     align-items: center;
     gap: 10px;
-    min-height: 110px;
+    min-height: 126px;
+}
+
+.sequence-slot.span-two,
+.default-slot.span-two {
+    grid-column: span 2;
 }
 
 .sequence-slot {
-    width: 96px;
-    height: 108px;
+    width: 100%;
+    height: 124px;
     border: 2px dashed rgba(255, 255, 255, 0.25);
     border-radius: 10px;
     display: flex;
@@ -649,6 +738,8 @@ html, body {
     background: rgba(0, 0, 0, 0.25);
     transition: all 0.2s;
 }
+
+.sequence-slot .game-card.card-compact { width: 100%; height: 100%; }
 
 .sequence-slot.filled {
     border-style: solid;
@@ -693,7 +784,7 @@ html, body {
 /* BOTÃO INICIAR SEQUÊNCIA */
 .btn-execute-prominent {
     width: 115px;
-    height: 108px;
+    height: 124px;
     background: linear-gradient(180deg, #f59e0b 0%, #d97706 50%, #9a3412 100%);
     border: 2px solid #fde047;
     border-radius: 10px;
@@ -728,15 +819,6 @@ html, body {
 @keyframes executePulseAnim {
     0% { transform: scale(1); }
     100% { transform: scale(1.05); }
-}
-
-.sequence-combo-preview {
-    font-size: 11px;
-    background: rgba(0, 0, 0, 0.4);
-    border-radius: 4px;
-    padding: 3px 8px;
-    color: #e2e8f0;
-    text-align: center;
 }
 
 /* MÃO DE CARTAS FLUTUANTES (DESIGN DE CARTAS REAIS) */
@@ -786,7 +868,7 @@ html, body {
 
 .game-card.card-compact {
     width: 96px;
-    height: 108px;
+    height: 124px;
 }
 
 .card-header {
@@ -803,6 +885,15 @@ html, body {
     color: #fff;
     padding: 1px 4px;
     border-radius: 3px;
+    text-transform: uppercase;
+}
+
+.card-rarity-line {
+    min-height: 11px;
+    padding: 1px 6px 0;
+    font-size: 7px;
+    font-weight: 900;
+    line-height: 10px;
     text-transform: uppercase;
 }
 
@@ -893,11 +984,15 @@ html, body {
 }
 
 /* RARIDADES */
-.rarity-comum { border-color: #64748b; }
+.rarity-comum { border-color: #9a8541; background-color: #f3e7ad; }
 .rarity-incomum { border-color: #22c55e; box-shadow: 0 0 10px rgba(34, 197, 94, 0.3); }
-.rarity-rara { border-color: #3b82f6; box-shadow: 0 0 12px rgba(59, 130, 246, 0.4); }
+.rarity-rara { border-color: #2563eb; background-color: #bfdbfe; box-shadow: 0 0 12px rgba(59, 130, 246, 0.4); }
 .rarity-epica { border-color: #a855f7; box-shadow: 0 0 15px rgba(168, 85, 247, 0.5); }
-.rarity-lendaria { border-color: #eab308; box-shadow: 0 0 20px rgba(234, 179, 8, 0.6); }
+.rarity-lendaria { border-color: #eab308; background-color: #facc15; box-shadow: 0 0 20px rgba(234, 179, 8, 0.6); }
+.card-rarity-line {
+    background: rgba(255, 255, 255, 0.45);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
 
 .sequence-controls {
     position: absolute;
@@ -1044,13 +1139,14 @@ html, body {
 }
 
 .default-seq-slots {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(4, 100px);
     justify-content: center;
     gap: 12px;
 }
 
 .default-slot {
-    width: 100px;
+    width: 100%;
     height: 110px;
     border: 1px dashed rgba(250, 204, 21, 0.5);
     border-radius: 8px;
@@ -1060,6 +1156,8 @@ html, body {
     position: relative;
     background: rgba(30, 15, 5, 0.5);
 }
+
+.default-slot .game-card.card-compact { width: 100%; height: 100%; }
 
 .default-slot.filled {
     border-style: solid;
@@ -1166,6 +1264,25 @@ html, body {
 
 .shop-item-box:hover { border-color: rgba(250, 204, 21, 0.5); }
 
+.shop-reroll-box {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(250, 204, 21, 0.35);
+    border-radius: 8px;
+    color: var(--pastel-yellow-ink);
+    background: rgba(255, 248, 220, 0.88);
+}
+
+.codex-rarity-heading {
+    grid-column: 1 / -1;
+    padding: 8px 4px 2px;
+    border-bottom: 1px solid rgba(120, 96, 30, 0.3);
+}
+
 .codex-window {
     width: min(920px, calc(100vw - 28px));
     height: min(82vh, 760px);
@@ -1253,8 +1370,9 @@ html, body {
 .item-icon { font-size: 28px; }
 
 /* RECOMPENSAS */
-.reward-cards-row { display: flex; justify-content: center; gap: 20px; padding: 16px 0; }
+.reward-cards-row { display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; padding: 16px 0; }
 .reward-draft-item { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.btn-pick.selected { background: #b79a38; color: #241c08; border-color: #f5df84; box-shadow: 0 0 0 2px rgba(245, 223, 132, .45); }
 
 /* TOASTS */
 #toastContainer {

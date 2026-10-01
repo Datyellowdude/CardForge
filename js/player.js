@@ -33,7 +33,8 @@ class Player {
             sharp: 0,
             enchanted: false,
             magicBoost: 1,
-            reflect: 0
+            reflect: 0,
+            repeatNext: 0
         };
 
         // Status negativos temporários
@@ -195,7 +196,8 @@ class Player {
             sharp: 0,
             enchanted: false,
             magicBoost: 1,
-            reflect: 0
+            reflect: 0,
+            repeatNext: 0
         };
         this.clearNegativeStatuses();
     }

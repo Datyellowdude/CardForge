@@ -84,6 +84,7 @@ class Game {
         this.ui = new UIManager(this);
 
         this.keys = {};
+        this.touchMove = { x: 0, y: 0 };
         this.lastTime = performance.now();
         this.idleTime = 0;
         this.pendingEncounterEnemy = null;
@@ -121,6 +122,50 @@ class Game {
         window.addEventListener('keyup', (e) => {
             this.keys[e.key.toLowerCase()] = false;
             this.keys[e.code] = false;
+        });
+
+        const joystick = document.getElementById('touchJoystick');
+        const thumb = joystick?.querySelector('.touch-joystick-thumb');
+        const interactButton = document.getElementById('touchInteract');
+        if (joystick && thumb) {
+            let activePointer = null;
+            const releaseJoystick = (event) => {
+                if (activePointer !== event.pointerId) return;
+                activePointer = null;
+                this.touchMove.x = 0;
+                this.touchMove.y = 0;
+                thumb.style.transform = 'translate(-50%, -50%)';
+                if (joystick.hasPointerCapture(event.pointerId)) joystick.releasePointerCapture(event.pointerId);
+            };
+            const moveJoystick = (event) => {
+                if (activePointer !== event.pointerId) return;
+                const rect = joystick.getBoundingClientRect();
+                const maxDistance = rect.width * 0.31;
+                let dx = event.clientX - (rect.left + rect.width / 2);
+                let dy = event.clientY - (rect.top + rect.height / 2);
+                const distance = Math.hypot(dx, dy);
+                if (distance > maxDistance) {
+                    dx = dx / distance * maxDistance;
+                    dy = dy / distance * maxDistance;
+                }
+                this.touchMove.x = dx / maxDistance;
+                this.touchMove.y = dy / maxDistance;
+                thumb.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+            };
+            joystick.addEventListener('pointerdown', (event) => {
+                if (this.state !== 'EXPLORING') return;
+                event.preventDefault();
+                activePointer = event.pointerId;
+                joystick.setPointerCapture(activePointer);
+                moveJoystick(event);
+            });
+            joystick.addEventListener('pointermove', moveJoystick);
+            joystick.addEventListener('pointerup', releaseJoystick);
+            joystick.addEventListener('pointercancel', releaseJoystick);
+        }
+        interactButton?.addEventListener('pointerdown', (event) => {
+            event.preventDefault();
+            if (this.state === 'EXPLORING') this.handleInteraction();
         });
     }
 
@@ -279,9 +324,15 @@ class Game {
                 typeId: 'goblin_guerreiro',
                 name: 'Guarda Real Goblin',
                 icon: '👹',
+                sprite: 'armored_goblin.png',
+                spriteFacesLeft: true,
+                spriteSize: 56,
+                battleSpriteSize: 104,
                 hp: 90,
                 maxHp: 90,
-                goldReward: 35,
+                goldReward: 75,
+                cardRewardPicks: 2,
+                damageReduction: 0.5,
                 baseDamage: 14,
                 actions: ['heavy_cleave', 'shield_up'],
                 color: '#ca8a04'
@@ -336,18 +387,21 @@ class Game {
         let moveX = 0;
         let moveY = 0;
 
-        if (this.keys['w'] || this.keys['arrowup']) { moveY -= 1; this.player.direction = 'up'; }
-        if (this.keys['s'] || this.keys['arrowdown']) { moveY += 1; this.player.direction = 'down'; }
-        if (this.keys['a'] || this.keys['arrowleft']) { moveX -= 1; this.player.direction = 'left'; }
-        if (this.keys['d'] || this.keys['arrowright']) { moveX += 1; this.player.direction = 'right'; }
+        if (this.keys['w'] || this.keys['arrowup']) moveY -= 1;
+        if (this.keys['s'] || this.keys['arrowdown']) moveY += 1;
+        if (this.keys['a'] || this.keys['arrowleft']) moveX -= 1;
+        if (this.keys['d'] || this.keys['arrowright']) moveX += 1;
+        moveX += this.touchMove.x;
+        moveY += this.touchMove.y;
+        const inputLength = Math.hypot(moveX, moveY);
+        if (inputLength > 1) {
+            moveX /= inputLength;
+            moveY /= inputLength;
+        }
+        if (Math.abs(moveX) > Math.abs(moveY) && Math.abs(moveX) > 0.15) this.player.direction = moveX < 0 ? 'left' : 'right';
+        else if (Math.abs(moveY) > 0.15) this.player.direction = moveY < 0 ? 'up' : 'down';
 
         if (moveX !== 0 || moveY !== 0) {
-            // Normalização diagonal
-            if (moveX !== 0 && moveY !== 0) {
-                moveX *= 0.7071;
-                moveY *= 0.7071;
-            }
-
             const nextX = this.player.x + moveX * this.player.speed;
             const nextY = this.player.y + moveY * this.player.speed;
 
@@ -399,6 +453,7 @@ class Game {
 
         // Atualiza patrulha dos monstros
         this.world.updateEnemies(deltaTime);
+        this.world.updateNpcs(deltaTime);
 
         // Checa encontro com inimigo
         const encounter = this.world.checkEnemyEncounter(this.player);
@@ -408,14 +463,30 @@ class Game {
 
         // Checa alvo de interação próximo
         this.interactTarget = this.world.checkInteractions(this.player);
+        const touchInteract = document.getElementById('touchInteract');
+        if (touchInteract) {
+            touchInteract.disabled = !this.interactTarget;
+            touchInteract.textContent = this.interactTarget ? 'INTERAGIR' : 'SEM ALVO';
+        }
     }
 
     // Renderização no Canvas
     render() {
         if (this.state === 'COMBAT') {
-            this.ui.renderBattleScene();
+            this.canvas.style.visibility = 'hidden';
+            try {
+                this.ui.renderBattleScene();
+            } catch (error) {
+                if (!this._battleRenderErrorReported) {
+                    console.error('Falha ao desenhar o cenário de combate:', error);
+                    this._battleRenderErrorReported = true;
+                }
+                this.ui.renderBattleFallback();
+            }
             return;
         }
+
+        this.canvas.style.visibility = '';
 
         this.ctx.clearRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
@@ -569,9 +640,15 @@ class Game {
             if (!sprite || !sprite.complete || !sprite.naturalWidth) continue;
             const height = npc.spriteHeight || 64;
             const width = height * sprite.naturalWidth / sprite.naturalHeight;
+            const bob = npc.isMoving
+                ? Math.abs(Math.sin((npc.animTime || this.idleTime) * 10)) * 2
+                : Math.sin(this.idleTime * (npc.idleAnimation ? 2.5 : 1.8) + (npc.id === 'mariah' ? 0.4 : 0)) * (npc.idleAnimation ? 1.8 : 0.8);
+            const sway = Math.sin((npc.animTime || this.idleTime) * (npc.isMoving ? 10 : 1.8)) * (npc.isMoving ? 0.025 : (npc.idleAnimation ? 0.022 : 0.012));
             ctx.save();
             ctx.imageSmoothingEnabled = false;
-            ctx.drawImage(sprite, npc.x - width / 2, npc.y - height / 2, width, height);
+            ctx.translate(npc.x, npc.y + bob);
+            ctx.rotate(sway);
+            ctx.drawImage(sprite, -width / 2, -height / 2, width, height);
             ctx.restore();
         }
 
@@ -594,7 +671,7 @@ class Game {
             : Math.sin(this.idleTime * 2.2) * (isMage ? 1.7 : 1.1);
         const idleSway = p.isMoving ? 0 : Math.sin(this.idleTime * (isMage ? 1.7 : 1.25)) * (isMage ? 0.035 : 0.015);
         const plumeSway = Math.sin(this.idleTime * 3.1) * (p.isMoving ? 0.07 : 0.12);
-        const playerHeight = p.classId === 'mage' ? 61 : 52;
+        const playerHeight = p.classId === 'mage' ? 72 : 52;
         this.drawPlayerCharacter(ctx, p.x, p.y - 6 + bob, playerHeight, {
             flip: p.direction === 'left',
             bodyAngle: idleSway,
@@ -612,6 +689,33 @@ class Game {
         }
         this.drawOutlinedName(ctx, p.name, p.x, p.y - 6 + bob - playerHeight / 2 - 7, '#fff1a8');
         if (this.interactTarget && this.state === 'EXPLORING') this.renderInteractPrompt();
+        this.renderBuildingLabels(area);
+    }
+
+    renderBuildingLabels(area) {
+        const ctx = this.displayCtx;
+        for (const obs of area.obstacles) {
+            if (obs.type !== 'house' || !obs.label) continue;
+            const centerX = obs.x + obs.w / 2;
+            const centerY = obs.y + 35;
+            ctx.save();
+            ctx.font = '12px "Press Start 2P", monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const boxWidth = ctx.measureText(obs.label).width + 20;
+            ctx.fillStyle = 'rgba(20, 13, 5, 0.94)';
+            ctx.fillRect(centerX - boxWidth / 2, centerY - 14, boxWidth, 28);
+            ctx.strokeStyle = '#ffe28a';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(centerX - boxWidth / 2, centerY - 14, boxWidth, 28);
+            ctx.lineJoin = 'round';
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = '#21170a';
+            ctx.strokeText(obs.label, centerX, centerY);
+            ctx.fillStyle = '#fff6d4';
+            ctx.fillText(obs.label, centerX, centerY);
+            ctx.restore();
+        }
     }
 
     drawOutlinedName(ctx, name, x, y, color = '#ffffff') {
@@ -760,19 +864,6 @@ class Game {
         for (const obs of area.obstacles) {
             if (obs.type === 'house') {
                 if (obs.sprite && this.drawBuildingSprite(obs)) {
-                    this.ctx.save();
-                    this.ctx.font = '9px \"Press Start 2P\", monospace';
-                    this.ctx.textAlign = 'center';
-                    this.ctx.textBaseline = 'middle';
-                    this.ctx.lineJoin = 'round';
-                    this.ctx.lineWidth = 3;
-                    this.ctx.strokeStyle = 'rgba(12, 9, 5, 0.96)';
-                    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-                    this.ctx.shadowBlur = 5;
-                    this.ctx.strokeText(obs.label || '', obs.x + obs.w / 2, obs.y + 35);
-                    this.ctx.fillStyle = '#fff1a8';
-                    this.ctx.fillText(obs.label || '', obs.x + obs.w / 2, obs.y + 35);
-                    this.ctx.restore();
                     continue;
                 }
 
@@ -787,20 +878,6 @@ class Game {
                 this.ctx.fillStyle = '#451a03';
                 this.ctx.fillRect(obs.x + obs.w / 2 - 15, obs.y + obs.h - 35, 30, 35);
 
-                // Placa informativa
-                this.ctx.save();
-                this.ctx.font = '9px \"Press Start 2P\", monospace';
-                this.ctx.textAlign = 'center';
-                this.ctx.textBaseline = 'middle';
-                this.ctx.lineJoin = 'round';
-                this.ctx.lineWidth = 3;
-                this.ctx.strokeStyle = 'rgba(12, 9, 5, 0.96)';
-                this.ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-                this.ctx.shadowBlur = 5;
-                this.ctx.strokeText(obs.label || '', obs.x + obs.w / 2, obs.y + 35);
-                this.ctx.fillStyle = '#fff1a8';
-                this.ctx.fillText(obs.label || '', obs.x + obs.w / 2, obs.y + 35);
-                this.ctx.restore();
             } else if (obs.type === 'well') {
                 // Poço de pedra
                 this.ctx.fillStyle = '#64748b';
@@ -966,7 +1043,7 @@ class Game {
         }
     }
 
-    drawEnemySprite(ctx, enemy, x, y, maxSize, horizontalScale = 1) {
+    drawEnemySprite(ctx, enemy, x, y, maxSize, horizontalScale = 1, faceLeft = null) {
         if (!enemy.sprite) return false;
         const image = this.enemySprites[enemy.sprite];
         if (!image || !image.complete || !image.naturalWidth || !image.naturalHeight) return false;
@@ -974,7 +1051,11 @@ class Game {
         const scale = maxSize / Math.max(image.naturalWidth, image.naturalHeight);
         const width = image.naturalWidth * scale * horizontalScale;
         const height = image.naturalHeight * scale;
-        const flip = enemy.spriteFacesLeft ? enemy.vx >= 0 : enemy.vx < 0;
+        const flip = faceLeft === true
+            ? !enemy.spriteFacesLeft
+            : faceLeft === false
+                ? enemy.spriteFacesLeft
+                : enemy.spriteFacesLeft ? enemy.vx >= 0 : enemy.vx < 0;
         ctx.save();
         ctx.imageSmoothingEnabled = false;
         ctx.translate(x, y);
@@ -999,12 +1080,13 @@ class Game {
     renderInteractPrompt() {
         const p = this.player;
         const target = this.interactTarget;
+        const isTouch = window.matchMedia('(pointer: coarse)').matches;
         const label = target.type === 'chest'
-            ? '[E] ABRIR BAÚ'
+            ? (isTouch ? 'TOQUE: ABRIR BAÚ' : '[E] ABRIR BAÚ')
             : target.type === 'blacksmith'
-                ? '[E] MELHORAR CARTAS'
-                : `[E] FALAR COM ${target.target.name.toLocaleUpperCase('pt-BR')}`;
-        const playerHeight = p.classId === 'mage' ? 61 : 52;
+                ? (isTouch ? 'TOQUE: MELHORAR CARTAS' : '[E] MELHORAR CARTAS')
+                : `${isTouch ? 'TOQUE: FALAR COM ' : '[E] FALAR COM '}${target.target.name.toLocaleUpperCase('pt-BR')}`;
+        const playerHeight = p.classId === 'mage' ? 72 : 52;
         this.drawOutlinedName(this.displayCtx, label, p.x, p.y - 6 - playerHeight / 2 - 30, '#fff1a8');
     }
 

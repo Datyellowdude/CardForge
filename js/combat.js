@@ -13,12 +13,17 @@ class CombatEnemy {
         // Na cena de combate, o inimigo fica à direita e encara o jogador à esquerda.
         this.vx = -1;
         const originalMaxHp = data.maxHp || data.hp;
-        this.maxHp = Math.ceil(originalMaxHp * 1.4);
-        this.hp = Math.min(this.maxHp, Math.ceil(data.hp * 1.4));
+        this.maxHp = data.isBoss ? originalMaxHp : Math.ceil(originalMaxHp * 1.4);
+        this.hp = Math.min(this.maxHp, data.isBoss ? data.hp : Math.ceil(data.hp * 1.4));
         this.shield = 0;
         this.baseDamage = data.baseDamage || 10;
         this.goldReward = data.goldReward || 25;
         this.xpReward = data.xpReward || 0;
+        this.cardRewardPicks = data.cardRewardPicks || 1;
+        this.damageReduction = Math.max(0, Math.min(0.9, data.damageReduction || 0));
+        this.summonSkeletonChance = data.summonSkeletonChance || 0;
+        this.summoned = !!data.summoned;
+        this.summonedBy = data.summonedBy || null;
         this.color = data.color || '#ef4444';
         this.isBoss = !!data.isBoss;
         this.actions = data.actions || ['attack'];
@@ -51,6 +56,8 @@ class CombatEnemy {
     takeDamage(amount, pierceShieldPercent = 0) {
         let remaining = amount;
         let shieldBlocked = 0;
+        const armorBlocked = Math.floor(remaining * this.damageReduction);
+        remaining -= armorBlocked;
 
         if (this.shield > 0 && pierceShieldPercent < 1) {
             const shieldEffective = Math.round(this.shield * (1 - pierceShieldPercent));
@@ -66,7 +73,7 @@ class CombatEnemy {
         }
 
         this.hp = Math.max(0, this.hp - remaining);
-        return { hpLost: remaining, shieldBlocked, currentHp: this.hp, isDead: this.isDead() };
+        return { hpLost: remaining, shieldBlocked, armorBlocked, currentHp: this.hp, isDead: this.isDead() };
     }
 
     addShield(val) {
@@ -80,12 +87,10 @@ class CombatEnemy {
     decideNextIntent() {
         const rand = Math.random();
         if (this.isBoss) {
-            if (rand < 0.45) {
+            if (rand < 0.6) {
                 this.intent = { type: 'attack', value: this.baseDamage, label: `Golpe Real (${this.baseDamage} Dano)`, icon: '⚔️' };
-            } else if (rand < 0.75) {
-                this.intent = { type: 'cleave', value: Math.floor(this.baseDamage * 1.3), label: `Fúria Devastadora (${Math.floor(this.baseDamage * 1.3)} Dano)`, icon: '💥' };
             } else {
-                this.intent = { type: 'defend', value: 20, label: 'Muralha de Guarda (+20 Escudo)', icon: '🛡️' };
+                this.intent = { type: 'cleave', value: Math.floor(this.baseDamage * 1.3), label: `Fúria Devastadora (${Math.floor(this.baseDamage * 1.3)} Dano)`, icon: '💥' };
             }
             return;
         }
@@ -141,7 +146,8 @@ class CombatEngine {
         this.hand = [];
         this.drawPile = [];
         this.discardPile = [];
-        this.sequence = [null, null, null, null]; // 4 slots de execução
+        this.sequenceMarkerKey = 'reservedSequenceSlot';
+        this.sequence = Array(this.getSequenceSlotCount()).fill(null);
         this.isExecuting = false;
         this.turnCount = 1;
         this.combatLogs = [];
@@ -163,7 +169,7 @@ class CombatEngine {
         this.shuffle(this.drawPile);
         this.discardPile = [];
         this.hand = [];
-        this.sequence = [null, null, null, null];
+        this.sequence = Array(this.getSequenceSlotCount()).fill(null);
         this.isExecuting = false;
 
         audio.playMusic(musicTrack);
@@ -171,19 +177,28 @@ class CombatEngine {
         this.applyDefaultSequence();
     }
 
+    getSequenceSlotCount() {
+        return this.player.level >= 5 ? 5 : 4;
+    }
+
     applyDefaultSequence() {
         if (!this.player.defaultSequence || !Array.isArray(this.player.defaultSequence)) return;
 
         // Para cada slot da sequência pré-configurada salva
-        for (let slot = 0; slot < this.player.defaultSequence.length && slot < 4; slot++) {
-            const templateId = this.player.defaultSequence[slot];
-            if (!templateId) continue;
+        let slot = 0;
+        for (const templateId of this.player.defaultSequence) {
+            if (slot >= this.sequence.length) break;
+            if (!templateId) {
+                slot++;
+                continue;
+            }
 
             // 1. Procura na mão
             let cardIndex = this.hand.findIndex(c => c.templateId === templateId);
             if (cardIndex !== -1) {
                 const [card] = this.hand.splice(cardIndex, 1);
-                this.sequence[slot] = card;
+                if (!this.placeCardAtSequence(card, slot, false)) this.hand.push(card);
+                else slot += card.sequenceSlots || 1;
                 continue;
             }
 
@@ -191,9 +206,11 @@ class CombatEngine {
             cardIndex = this.drawPile.findIndex(c => c.templateId === templateId);
             if (cardIndex !== -1) {
                 const [card] = this.drawPile.splice(cardIndex, 1);
-                this.sequence[slot] = card;
+                if (!this.placeCardAtSequence(card, slot, false)) this.hand.push(card);
+                else slot += card.sequenceSlots || 1;
                 continue;
             }
+            slot++;
         }
 
         // Garante que a mão tenha 5 cartas para opções de troca
@@ -245,33 +262,71 @@ class CombatEngine {
         if (this.isExecuting) return false;
         const handIndex = this.hand.findIndex(c => c.uid === cardUid);
         if (handIndex === -1) return false;
+        const card = this.hand[handIndex];
+        const slotCost = card.sequenceSlots || 1;
 
-        // Se slot não for especificado, pega o primeiro vazio
         let targetSlot = slotIndex;
         if (targetSlot === null || targetSlot < 0 || targetSlot >= this.sequence.length) {
-            targetSlot = this.sequence.findIndex(s => s === null);
+            targetSlot = -1;
+            for (let i = 0; i <= this.sequence.length - slotCost; i++) {
+                if (this.sequence.slice(i, i + slotCost).every(s => s === null)) {
+                    targetSlot = i;
+                    break;
+                }
+            }
         }
 
         if (targetSlot === -1) return false; // Sequência cheia
-
-        // Remove da mão e coloca na sequência
-        const [card] = this.hand.splice(handIndex, 1);
-        
-        // Se já havia carta no slot, devolve pra mão
-        if (this.sequence[targetSlot] !== null) {
-            this.hand.push(this.sequence[targetSlot]);
-        }
-
-        this.sequence[targetSlot] = card;
+        if (!this.placeCardAtSequence(card, targetSlot, true)) return false;
+        this.hand.splice(handIndex, 1);
         audio.cardPlace();
+        return true;
+    }
+
+    sequenceCardAt(slotIndex) {
+        const slot = this.sequence[slotIndex];
+        if (slot && slot[this.sequenceMarkerKey]) {
+            return this.sequence.find(card => card && !card[this.sequenceMarkerKey] && card.uid === slot.ownerUid) || null;
+        }
+        return slot || null;
+    }
+
+    clearCardFromSequence(card) {
+        if (!card) return;
+        for (let i = 0; i < this.sequence.length; i++) {
+            const slot = this.sequence[i];
+            if (slot === card || (slot && slot[this.sequenceMarkerKey] && slot.ownerUid === card.uid)) {
+                this.sequence[i] = null;
+            }
+        }
+    }
+
+    placeCardAtSequence(card, startSlot, replace = true) {
+        const slotCost = card.sequenceSlots || 1;
+        if (startSlot < 0 || startSlot + slotCost > this.sequence.length) return false;
+        const conflicts = new Set();
+        for (let i = startSlot; i < startSlot + slotCost; i++) {
+            const existing = this.sequenceCardAt(i);
+            if (existing && existing !== card) conflicts.add(existing);
+        }
+        if (!replace && conflicts.size) return false;
+        for (const existing of conflicts) {
+            this.clearCardFromSequence(existing);
+            this.hand.push(existing);
+        }
+        this.sequence[startSlot] = card;
+        for (let offset = 1; offset < slotCost; offset++) {
+            this.sequence[startSlot + offset] = { [this.sequenceMarkerKey]: true, ownerUid: card.uid };
+        }
         return true;
     }
 
     removeCardFromSequence(slotIndex) {
         if (this.isExecuting) return false;
-        if (this.sequence[slotIndex]) {
-            this.hand.push(this.sequence[slotIndex]);
-            this.sequence[slotIndex] = null;
+        const card = this.sequenceCardAt(slotIndex);
+        if (card) {
+            this.clearCardFromSequence(card);
+            this.hand.push(card);
             audio.cardSelect();
             return true;
         }
@@ -279,20 +334,50 @@ class CombatEngine {
     }
 
     swapSequenceSlots(slotA, slotB) {
-        if (this.isExecuting) return;
-        const temp = this.sequence[slotA];
-        this.sequence[slotA] = this.sequence[slotB];
-        this.sequence[slotB] = temp;
+        return this.moveSequenceCard(slotA, slotB);
+    }
+
+    moveSequenceCard(fromSlot, toSlot) {
+        if (this.isExecuting) return false;
+        const card = this.sequenceCardAt(fromSlot);
+        if (!card || toSlot < 0 || toSlot >= this.sequence.length) return false;
+        const targetCard = this.sequenceCardAt(toSlot);
+        if (targetCard === card) return false;
+
+        const orderedCards = this.sequence
+            .map((entry, index) => entry && !entry[this.sequenceMarkerKey] ? { card: entry, start: index } : null)
+            .filter(Boolean);
+        const fromIndex = orderedCards.findIndex(entry => entry.card === card);
+        if (fromIndex < 0) return false;
+        orderedCards.splice(fromIndex, 1);
+        let targetIndex = targetCard
+            ? orderedCards.findIndex(entry => entry.card === targetCard)
+            : orderedCards.findIndex(entry => entry.start >= toSlot);
+        if (targetIndex < 0) targetIndex = orderedCards.length;
+        orderedCards.splice(targetIndex, 0, { card, start: toSlot });
+
+        const repacked = Array(this.sequence.length).fill(null);
+        let nextSlot = 0;
+        for (const entry of orderedCards) {
+            const slotCost = entry.card.sequenceSlots || 1;
+            if (nextSlot + slotCost > repacked.length) return false;
+            repacked[nextSlot] = entry.card;
+            for (let offset = 1; offset < slotCost; offset++) {
+                repacked[nextSlot + offset] = { [this.sequenceMarkerKey]: true, ownerUid: entry.card.uid };
+            }
+            nextSlot += slotCost;
+        }
+        this.sequence = repacked;
         audio.cardPlace();
+        return true;
     }
 
     clearSequence() {
         if (this.isExecuting) return;
         for (let i = 0; i < this.sequence.length; i++) {
-            if (this.sequence[i]) {
-                this.hand.push(this.sequence[i]);
-                this.sequence[i] = null;
-            }
+            const card = this.sequence[i];
+            if (card && !card[this.sequenceMarkerKey]) this.hand.push(card);
+            this.sequence[i] = null;
         }
     }
 
@@ -305,7 +390,7 @@ class CombatEngine {
 
         for (let i = 0; i < this.sequence.length; i++) {
             const card = this.sequence[i];
-            if (!card) {
+            if (!card || card[this.sequenceMarkerKey]) {
                 preview.push(null);
                 continue;
             }
@@ -352,7 +437,7 @@ class CombatEngine {
     // EXECUÇÃO DO TURNO: DA ESQUERDA PARA A DIREITA
     async executeTurn(onStepUpdate, onCombatFinished) {
         if (this.isExecuting) return;
-        const activeCards = this.sequence.filter(c => c !== null);
+        const activeCards = this.sequence.filter(c => c && !c[this.sequenceMarkerKey]);
         if (activeCards.length === 0) {
             this.addLog('⚠️ Adicione ao menos uma carta na sequência antes de atacar!');
             return;
@@ -360,7 +445,6 @@ class CombatEngine {
 
         this.isExecuting = true;
         this.player.resetTurnShield();
-        this.enemies.forEach(e => e.resetTurnShield());
 
         // Contexto de execução para as cartas
         const context = {
@@ -372,14 +456,18 @@ class CombatEngine {
             log: (msg) => this.addLog(msg),
             addVfx: (type, target) => this.triggerVfx(type, target),
             dealDamageToTarget: (target, amount, sourceName, options = {}) => {
-                const finalDamage = this.player.classId === 'mage' ? Math.max(1, Math.floor(amount * 1.2)) : amount;
+                const finalDamage = amount;
                 const result = target.takeDamage(finalDamage, options.pierceShieldPercent || 0);
                 this.addFloatingText(target, `-${result.hpLost}`, '#f87171');
+                if (result.armorBlocked > 0) {
+                    this.addFloatingText(target, `🛡️ Armadura -${result.armorBlocked}`, '#cbd5e1');
+                    this.addLog(`🛡️ A armadura de ${target.name} absorveu ${result.armorBlocked} de dano!`);
+                }
                 if (result.shieldBlocked > 0) {
                     this.addFloatingText(target, `🛡️ Bloqueou ${result.shieldBlocked}`, '#38bdf8');
                 }
-                if (onStepUpdate) onStepUpdate({ type: 'enemy_hurt', enemy: target, dmg: finalDamage });
-                this.addLog(`💥 ${sourceName} causou ${finalDamage} de dano a ${target.name}!`);
+                if (onStepUpdate) onStepUpdate({ type: 'enemy_hurt', enemy: target, dmg: result.hpLost, armorBlocked: result.armorBlocked });
+                this.addLog(`💥 ${sourceName} causou ${result.hpLost} de dano a ${target.name}!`);
                 if (result.isDead) {
                     this.addLog(`💀 ${target.name} foi derrotado!`);
                     audio.defeat();
@@ -390,21 +478,25 @@ class CombatEngine {
         // 1. EXECUÇÃO ESQUERDA -> DIREITA
         for (let i = 0; i < this.sequence.length; i++) {
             const card = this.sequence[i];
-            if (!card) continue;
+            if (!card || card[this.sequenceMarkerKey]) continue;
 
             context.sequenceIndex = i;
             context.target = this.getTarget(); // Atualiza alvo vivo caso o anterior tenha morrido
+            const repeatCount = card.templateId === 'repetidor' ? 0 : (this.player.combatBuffs.repeatNext || 0);
+            if (repeatCount) this.player.combatBuffs.repeatNext = 0;
 
             // Notifica interface para destacar a carta ativa
             if (onStepUpdate) onStepUpdate({ type: 'card_start', slotIndex: i, card });
             audio.cardActivate();
 
-            // Executa efeito da carta
-            card.execute(context);
-            this.playCardAudio(card);
-
-            // Aguarda tempo para visualização da animação e suspense de combo
-            await this.sleep(700);
+            // Executa a carta uma ou duas vezes conforme o Repetidor.
+            for (let repetition = 0; repetition <= repeatCount; repetition++) {
+                context.target = this.getTarget();
+                card.execute(context);
+                this.playCardAudio(card);
+                await this.sleep(700);
+                if (this.allEnemiesDead()) break;
+            }
 
             if (onStepUpdate) onStepUpdate({ type: 'card_end', slotIndex: i, card });
 
@@ -434,7 +526,8 @@ class CombatEngine {
         this.addLog('🛡️ Turno dos Inimigos!');
         await this.sleep(500);
 
-        for (const enemy of this.enemies) {
+        const enemiesActingThisTurn = [...this.enemies];
+        for (const enemy of enemiesActingThisTurn) {
             if (enemy.isDead()) continue;
 
             // Checagem de Atordoamento
@@ -492,6 +585,48 @@ class CombatEngine {
                     this.finishCombatDefeat(onCombatFinished);
                     return;
                 }
+
+                if (enemy.summonSkeletonChance > 0 && Math.random() < enemy.summonSkeletonChance &&
+                    !this.enemies.some(other => !other.isDead() && other.summonedBy === enemy.id)) {
+                    const skeleton = new CombatEnemy({
+                        id: `${enemy.id}_skeleton_${this.turnCount}`,
+                        name: 'Esqueleto Invocado',
+                        typeId: 'esqueleto',
+                        icon: '💀',
+                        sprite: 'skeleton.png',
+                        spriteFacesLeft: true,
+                        spriteSize: 48,
+                        battleSpriteSize: 78,
+                        hp: 45,
+                        maxHp: 45,
+                        baseDamage: 12,
+                        goldReward: 0,
+                        xpReward: 0,
+                        summoned: true,
+                        summonedBy: enemy.id,
+                        actions: ['bone_slash'],
+                        color: '#e2e8f0'
+                    });
+                    this.enemies.push(skeleton);
+                    this.addFloatingText(enemy, '💀 Invocou um esqueleto!', '#cbd5e1');
+                    this.addLog(`💀 ${enemy.name} invocou um esqueleto para lutar ao seu lado!`);
+                    if (onStepUpdate) onStepUpdate({ type: 'enemy_summoned', enemy: skeleton });
+                }
+
+                if (enemy.isBoss && Math.random() < 0.5) {
+                    if (Math.random() < 0.5 || enemy.hp >= enemy.maxHp) {
+                        enemy.addShield(20);
+                        audio.shield();
+                        this.addFloatingText(enemy, '🛡️ +20 Escudo', '#38bdf8');
+                        this.addLog(`🛡️ ${enemy.name} ativou seu escudo e absorverá 20 de dano!`);
+                    } else {
+                        const healed = Math.min(15, enemy.maxHp - enemy.hp);
+                        enemy.hp += healed;
+                        audio.heal();
+                        this.addFloatingText(enemy, `💚 +${healed} Vida`, '#4ade80');
+                        this.addLog(`💚 ${enemy.name} recuperou ${healed} de vida!`);
+                    }
+                }
             } else if (intent.type === 'defend') {
                 enemy.addShield(intent.value);
                 audio.shield();
@@ -505,10 +640,10 @@ class CombatEngine {
         // 4. PREPARAÇÃO DO PRÓXIMO TURNO
         // Move cartas da sequência para descarte
         for (let i = 0; i < this.sequence.length; i++) {
-            if (this.sequence[i]) {
+            if (this.sequence[i] && !this.sequence[i][this.sequenceMarkerKey]) {
                 this.discardPile.push(this.sequence[i]);
-                this.sequence[i] = null;
             }
+            this.sequence[i] = null;
         }
 
         // Compra até ter 5 na mão
@@ -533,15 +668,18 @@ class CombatEngine {
         audio.victory();
         let totalGold = 0;
         let totalExperience = 0;
-        this.enemies.forEach(e => totalGold += e.goldReward);
+        let rewardCardPicks = 1;
         this.enemies.forEach(e => {
+            if (e.summoned) return;
+            totalGold += e.goldReward;
             totalExperience += e.xpReward || Math.max(20, Math.floor(e.maxHp * 0.65 + e.baseDamage * 1.5));
+            rewardCardPicks += Math.max(0, (e.cardRewardPicks || 1) - 1);
         });
         let earnedGold = this.player.addGold(totalGold);
         const experienceResult = this.player.addExperience(totalExperience);
         earnedGold += experienceResult.bonusGold;
 
-        const cardChoices = generateCardRewardDraft(this.player.classId);
+        const cardChoices = generateCardRewardDraft(this.player.classId, rewardCardPicks + 2);
 
         this.addLog(`🏆 VITÓRIA! +${experienceResult.gained} XP e +${earnedGold} moedas!`);
         if (callback) {
@@ -551,7 +689,8 @@ class CombatEngine {
                 experience: experienceResult.gained,
                 levelUps: experienceResult.levelUps,
                 enemies: this.enemies,
-                rewardCards: cardChoices
+                rewardCards: cardChoices,
+                rewardCardPicks
             });
         }
     }

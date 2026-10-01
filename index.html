@@ -39,6 +39,12 @@
         <!-- EXPLORATION CANVAS (FULL SCREEN) -->
         <main id="mainViewport">
             <canvas id="worldCanvas" width="800" height="560"></canvas>
+            <div id="touchControls" aria-label="Controles de toque">
+                <div id="touchJoystick" class="touch-joystick" aria-label="Joystick para mover" role="application">
+                    <div class="touch-joystick-thumb"></div>
+                </div>
+                <button id="touchInteract" class="touch-interact" type="button">INTERAGIR</button>
+            </div>
         </main>
 
         <!-- FOOTER CONTROLS HELPER -->
@@ -142,9 +148,6 @@
                             <span class="btn-icon">⚔️</span>
                             <span class="btn-text">INICIAR<br><b>SEQUÊNCIA</b></span>
                         </button>
-                    </div>
-                    <div class="sequence-combo-preview" id="combatComboPreview">
-                        <i>Nenhuma carta alinhada. Monte sua sequência!</i>
                     </div>
                 </div>
 
@@ -279,10 +282,11 @@
                 </div>
                 <div class="modal-content" style="align-items: center;">
                     <div id="rewardGoldText" style="font-size: 12px; line-height: 1.8; font-weight: 800; color: var(--gold);">+35 🪙 Moedas Obtidas!</div>
-                    <p style="color: #94a3b8; font-size: 13px; margin-top: 4px;">Escolha 1 carta para adicionar permanentemente ao seu baralho:</p>
+                    <p id="rewardCardPrompt" style="color: #94a3b8; font-size: 13px; margin-top: 4px;">Escolha 1 carta para adicionar permanentemente ao seu baralho:</p>
                     
                     <div id="rewardCardsRow" class="reward-cards-row"></div>
 
+                    <button id="btnClaimReward" class="btn-game" style="background: #b79a38; color: #241c08; margin-top: 8px;">Confirmar Cartas Escolhidas</button>
                     <button id="btnSkipReward" class="btn-game" style="background: #334155; margin-top: 8px;">Pular Recompensa de Carta</button>
                 </div>
             </div>

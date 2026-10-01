@@ -4,9 +4,9 @@
 const CardRarity = {
     COMUM: { id: 'comum', name: 'Comum', color: '#75632c', border: '#9a8541', bg: '#f3e7ad' },
     INCOMUM: { id: 'incomum', name: 'Incomum', color: '#356b38', border: '#4c8c4e', bg: '#f3e7ad' },
-    RARA: { id: 'rara', name: 'Rara', color: '#425b8a', border: '#5672a7', bg: '#f3e7ad' },
+    RARA: { id: 'rara', name: 'Rara', color: '#163c70', border: '#2563eb', bg: '#bfdbfe' },
     EPICA: { id: 'epica', name: 'Épica', color: '#714586', border: '#86569e', bg: '#f3e7ad' },
-    LENDARIA: { id: 'lendaria', name: 'Lendária', color: '#806519', border: '#aa8727', bg: '#f3e7ad' }
+    LENDARIA: { id: 'lendaria', name: 'Lendária', color: '#684900', border: '#eab308', bg: '#facc15' }
 };
 
 const CardType = {
@@ -65,9 +65,10 @@ const CARD_TEMPLATES = {
         id: 'machado',
         name: 'Machado Pesado',
         type: CardType.ATAQUE,
-        rarity: CardRarity.INCOMUM,
+        rarity: CardRarity.RARA,
         cost: 0,
-        baseValue: 32,
+        baseValue: 40,
+        sequenceSlots: 2,
         tags: ['arma', 'pesado'],
         icon: '🪓',
         description: 'Golpe brutal causando {val} de dano. Aplica Sangramento.',
@@ -120,7 +121,7 @@ const CARD_TEMPLATES = {
         id: 'arco',
         name: 'Disparo de Arco',
         type: CardType.ATAQUE,
-        rarity: CardRarity.INCOMUM,
+        rarity: CardRarity.RARA,
         cost: 0,
         baseValue: 24,
         tags: ['arma', 'distancia'],
@@ -143,7 +144,7 @@ const CARD_TEMPLATES = {
         id: 'lanca',
         name: 'Golpe de Lança',
         type: CardType.ATAQUE,
-        rarity: CardRarity.INCOMUM,
+        rarity: CardRarity.RARA,
         cost: 0,
         baseValue: 20,
         tags: ['arma', 'perfurante'],
@@ -211,7 +212,7 @@ const CARD_TEMPLATES = {
         id: 'concentrar',
         name: 'Concentração',
         type: CardType.PREPARACAO,
-        rarity: CardRarity.INCOMUM,
+        rarity: CardRarity.COMUM,
         cost: 0,
         baseValue: 1,
         tags: ['preparacao', 'utilidade'],
@@ -224,6 +225,24 @@ const CARD_TEMPLATES = {
             context.player.addShield(8 + (this.level - 1) * 4);
             context.addVfx('focus', context.player);
             context.log('🧘 Mente concentrada! Magias fortalecidas em +40% e +8 Escudo.');
+        }
+    },
+
+    repetidor: {
+        id: 'repetidor',
+        name: 'Repetidor',
+        type: CardType.PREPARACAO,
+        rarity: CardRarity.RARA,
+        cost: 0,
+        baseValue: 1,
+        tags: ['preparacao', 'utilidade'],
+        icon: '🔁',
+        description: 'Repete a próxima carta da sequência uma vez.',
+        comboText: 'Coloque antes da ação que deseja repetir.',
+        upgradeMultiplier: 1,
+        execute(context) {
+            context.player.combatBuffs.repeatNext = 1;
+            context.log('🔁 Repetidor ativado: a próxima carta será executada duas vezes!');
         }
     },
 
@@ -290,7 +309,7 @@ const CARD_TEMPLATES = {
         id: 'gelo',
         name: 'Estaca de Gelo',
         type: CardType.MAGIA,
-        rarity: CardRarity.INCOMUM,
+        rarity: CardRarity.RARA,
         cost: 0,
         baseValue: 18,
         tags: ['magia', 'gelo'],
@@ -313,7 +332,7 @@ const CARD_TEMPLATES = {
         id: 'veneno',
         name: 'Frasco Venenoso',
         type: CardType.MAGIA,
-        rarity: CardRarity.INCOMUM,
+        rarity: CardRarity.COMUM,
         cost: 0,
         baseValue: 12,
         tags: ['magia', 'veneno'],
@@ -353,9 +372,10 @@ const CARD_TEMPLATES = {
         id: 'barreira',
         name: 'Barreira Sagrada',
         type: CardType.DEFESA,
-        rarity: CardRarity.RARA,
+        rarity: CardRarity.LENDARIA,
         cost: 0,
         baseValue: 35,
+        sequenceSlots: 2,
         tags: ['defesa', 'sagrado'],
         icon: '✨🛡️',
         description: 'Cria uma muralha de luz com {val} de Escudo e reflete 30% do dano absorvido de volta.',
@@ -394,9 +414,10 @@ const CARD_TEMPLATES = {
         id: 'furor',
         name: 'Golpe de Furor',
         type: CardType.ATAQUE,
-        rarity: CardRarity.EPICA,
+        rarity: CardRarity.LENDARIA,
         cost: 0,
         baseValue: 45,
+        sequenceSlots: 2,
         tags: ['arma', 'pesado', 'epico'],
         icon: '💥',
         description: 'Um golpe devastador de {val} dano. Se o jogador tiver menos de 50% de HP, causa +50% dano extra.',
@@ -424,6 +445,7 @@ const CARD_TEMPLATES = {
         rarity: CardRarity.LENDARIA,
         cost: 0,
         baseValue: 60,
+        sequenceSlots: 2,
         tags: ['lendaria', 'arma', 'sagrado'],
         icon: '☀️🗡️',
         description: 'Causa {val} de dano a TODOS os inimigos, cura 15 de Vida e aplica Queimadura Sagrada.',
@@ -452,6 +474,7 @@ class Card {
         this.name = template.name;
         this.type = template.type;
         this.rarity = template.rarity;
+        this.sequenceSlots = template.sequenceSlots || 1;
         this.tags = [...template.tags];
         this.icon = template.icon;
         this.comboText = template.comboText;
@@ -511,9 +534,7 @@ function getRandomCard(pool = null, rarityWeightModifier = 1) {
     
     let targetRarity = CardRarity.COMUM;
     if (rand < 0.05 * rarityWeightModifier) targetRarity = CardRarity.LENDARIA;
-    else if (rand < 0.15 * rarityWeightModifier) targetRarity = CardRarity.EPICA;
-    else if (rand < 0.35 * rarityWeightModifier) targetRarity = CardRarity.RARA;
-    else if (rand < 0.65 * rarityWeightModifier) targetRarity = CardRarity.INCOMUM;
+    else if (rand < 0.30 * rarityWeightModifier) targetRarity = CardRarity.RARA;
     else targetRarity = CardRarity.COMUM;
 
     // Filtra cartas com a raridade alvo
@@ -524,7 +545,7 @@ function getRandomCard(pool = null, rarityWeightModifier = 1) {
 }
 
 // Retorna 3 cartas distintas para escolha de recompensa
-function generateCardRewardDraft(classId = null) {
+function generateCardRewardDraft(classId = null, count = 3) {
     const choices = [];
     const usedIds = new Set();
     const allKeys = Object.keys(CARD_TEMPLATES);
@@ -536,14 +557,29 @@ function generateCardRewardDraft(classId = null) {
         return false;
     });
     const affinityPool = preferredKeys.length ? preferredKeys : allKeys;
+    const weightedPick = (availableKeys) => {
+        const rarityRoll = Math.random();
+        const wantedRarity = rarityRoll < 0.05
+            ? CardRarity.LENDARIA.id
+            : rarityRoll < 0.30
+                ? CardRarity.RARA.id
+                : CardRarity.COMUM.id;
+        const rarityMatches = availableKeys.filter(key => CARD_TEMPLATES[key].rarity.id === wantedRarity);
+        const keys = rarityMatches.length ? rarityMatches : availableKeys;
+        return new Card(keys[Math.floor(Math.random() * keys.length)], 1);
+    };
 
-    while (choices.length < 3) {
-        const pool = Math.random() < 0.75 ? affinityPool : allKeys;
-        const card = getRandomCard(pool);
-        if (!usedIds.has(card.templateId)) {
-            usedIds.add(card.templateId);
-            choices.push(card);
+    while (choices.length < Math.min(count, allKeys.length)) {
+        let pool = Math.random() < 0.75 ? affinityPool : allKeys;
+        let available = pool.filter(key => !usedIds.has(key));
+        if (!available.length) {
+            pool = allKeys;
+            available = pool.filter(key => !usedIds.has(key));
         }
+        if (!available.length) break;
+        const card = weightedPick(available);
+        usedIds.add(card.templateId);
+        choices.push(card);
     }
     return choices;
 }

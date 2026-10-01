@@ -106,7 +106,6 @@ class UIManager {
             combatPlayerShieldText: document.getElementById('combatPlayerShieldText'),
             combatPlayerBuffs: document.getElementById('combatPlayerBuffs'),
             combatSequenceRow: document.getElementById('combatSequenceRow'),
-            combatComboPreview: document.getElementById('combatComboPreview'),
             combatHandRow: document.getElementById('combatHandRow'),
             btnExecuteTurn: document.getElementById('btnExecuteTurn'),
             btnExecuteTurnAlt: document.getElementById('btnExecuteTurnAlt'),
@@ -124,6 +123,7 @@ class UIManager {
             rewardModal: document.getElementById('rewardModal'),
             rewardGoldText: document.getElementById('rewardGoldText'),
             rewardCardsRow: document.getElementById('rewardCardsRow'),
+            btnClaimReward: document.getElementById('btnClaimReward'),
             btnSkipReward: document.getElementById('btnSkipReward'),
 
             // Modal Derrota
@@ -245,6 +245,12 @@ class UIManager {
             });
         }
 
+        if (this.elements.btnClaimReward) {
+            this.elements.btnClaimReward.addEventListener('click', () => {
+                if (this.pendingRewardClaim) this.pendingRewardClaim();
+            });
+        }
+
         if (this.elements.btnRespawn) {
             this.elements.btnRespawn.addEventListener('click', () => {
                 this.closeModals();
@@ -267,6 +273,7 @@ class UIManager {
 
     closeModals() {
         document.querySelectorAll('.modal-overlay').forEach(m => m.classList.add('hidden'));
+        this.pendingRewardClaim = null;
         if (this.game.state !== 'COMBAT') {
             this.game.state = 'EXPLORING';
         }
@@ -296,8 +303,10 @@ class UIManager {
 
         if (showingCards) {
             const cards = Object.values(CARD_TEMPLATES);
-            this.elements.codexCount.textContent = `${cards.length} cartas`;
-            for (const card of cards) {
+            const weapons = cards.filter(card => (card.tags || []).includes('arma'));
+            const otherCards = cards.filter(card => !(card.tags || []).includes('arma'));
+            this.elements.codexCount.textContent = `${cards.length} cartas · armas por raridade`;
+            const renderCardEntry = (card) => {
                 const entry = document.createElement('article');
                 entry.className = 'codex-entry';
                 const icon = document.createElement('div');
@@ -311,10 +320,11 @@ class UIManager {
                 const meta = document.createElement('div');
                 meta.className = 'codex-entry-meta';
                 meta.textContent = `${card.type.name} · ${card.rarity.name}`;
-                const description = document.createElement('p');
-                description.className = 'codex-entry-description';
-                description.textContent = card.description.replace(/\{val\}/g, card.baseValue);
-                copy.append(title, meta, description);
+                const effect = document.createElement('p');
+                effect.className = 'codex-entry-description';
+                const cardInstance = new Card(card.id, 1);
+                effect.textContent = cardInstance.description.replace(/<[^>]*>/g, '');
+                copy.append(title, meta, effect);
                 if (card.comboText) {
                     const combo = document.createElement('p');
                     combo.className = 'codex-entry-combo';
@@ -323,6 +333,24 @@ class UIManager {
                 }
                 entry.append(icon, copy);
                 this.elements.codexContent.appendChild(entry);
+            };
+            const rarities = [...new Set(weapons.map(card => card.rarity))].sort((a, b) => {
+                const order = { comum: 0, incomum: 1, rara: 2, epica: 3, lendaria: 4 };
+                return order[a.id] - order[b.id];
+            });
+            for (const rarity of rarities) {
+                const heading = document.createElement('h3');
+                heading.className = 'codex-entry-title codex-rarity-heading';
+                heading.textContent = `Armas · ${rarity.name}`;
+                this.elements.codexContent.appendChild(heading);
+                weapons.filter(card => card.rarity.id === rarity.id).forEach(renderCardEntry);
+            }
+            const otherHeading = document.createElement('h3');
+            otherHeading.className = 'codex-entry-title codex-rarity-heading';
+            otherHeading.textContent = 'Outras cartas';
+            this.elements.codexContent.appendChild(otherHeading);
+            for (const card of otherCards) {
+                renderCardEntry(card);
             }
             return;
         }
@@ -332,9 +360,9 @@ class UIManager {
             goblin: 'Saqueador astuto que embosca viajantes e luta com armas improvisadas.',
             lobo: 'Predador veloz que usa mordidas e uivos para pressionar suas presas.',
             aranha: 'Aranha venenosa que prende e enfraquece seus alvos antes de atacar.',
-            goblin_guerreiro: 'Goblin protegido por armadura; alterna golpes pesados e defesa com escudo.',
+            goblin_guerreiro: 'Goblin de armadura pesada que reduz passivamente em 50% o dano recebido.',
             esqueleto: 'Guardião de ossos das cavernas que golpeia e se protege com o escudo.',
-            mago: 'Necromante que ataca à distância com magia sombria e maldições.',
+            mago: 'Necromante que ataca com magia sombria e tem 33% de chance de invocar um esqueleto após atacar.',
             rei_goblin: 'Malakor, o chefe das ruínas. Usa golpes reais, fúria e ataques amplos.',
             guarda_real: 'Protetor do Rei Goblin, treinado para atacar com força e defender o trono.'
         };
@@ -387,40 +415,42 @@ class UIManager {
         if (!this.elements.defaultSeqSlots) return;
         const player = this.game.player;
         if (!player.defaultSequence) player.defaultSequence = ['afia', 'espada', 'fogo', 'escudo'];
+        player.defaultSequence = player.defaultSequence.filter(Boolean);
         this.elements.defaultSeqSlots.innerHTML = '';
+        const capacity = player.level >= 5 ? 5 : 4;
+        this.elements.defaultSeqSlots.style.gridTemplateColumns = `repeat(${capacity}, minmax(72px, 100px))`;
 
-        for (let i = 0; i < 4; i++) {
+        let usedSlots = 0;
+        for (let i = 0; i < player.defaultSequence.length && usedSlots < capacity; i++) {
             const templateId = player.defaultSequence[i];
+            const matchingCard = player.deck.find(c => c.templateId === templateId) || new Card(templateId, 1);
+            const slotCost = matchingCard.sequenceSlots || 1;
+            if (usedSlots + slotCost > capacity) continue;
             const slot = document.createElement('div');
-            slot.className = `default-slot ${templateId ? 'filled' : 'empty'}`;
+            slot.className = 'default-slot filled';
+            if (slotCost > 1) slot.classList.add('span-two');
+            const cardEl = this.createCardElement(matchingCard, { inSequence: true, showLevel: true });
+            const btnRemove = document.createElement('button');
+            btnRemove.className = 'default-slot-btn-remove';
+            btnRemove.innerHTML = '✕';
+            btnRemove.title = 'Remover da sequência padrão';
+            btnRemove.onclick = (e) => {
+                e.stopPropagation();
+                player.defaultSequence.splice(i, 1);
+                SaveManager.saveGame(this.game);
+                audio.cardSelect();
+                this.renderDefaultSequenceConfig();
+            };
+            cardEl.appendChild(btnRemove);
+            slot.appendChild(cardEl);
+            this.elements.defaultSeqSlots.appendChild(slot);
+            usedSlots += slotCost;
+        }
 
-            if (templateId) {
-                const matchingCard = player.deck.find(c => c.templateId === templateId) || new Card(templateId, 1);
-                const cardEl = this.createCardElement(matchingCard, { inSequence: true, showLevel: true });
-
-                const btnRemove = document.createElement('button');
-                btnRemove.className = 'default-slot-btn-remove';
-                btnRemove.innerHTML = '✕';
-                btnRemove.title = 'Remover da sequência padrão';
-                btnRemove.onclick = (e) => {
-                    e.stopPropagation();
-                    player.defaultSequence[i] = null;
-                    SaveManager.saveGame(this.game);
-                    audio.cardSelect();
-                    this.renderDefaultSequenceConfig();
-                };
-
-                cardEl.appendChild(btnRemove);
-                slot.appendChild(cardEl);
-            } else {
-                slot.innerHTML = `
-                    <div class="slot-placeholder">
-                        <span class="slot-number">${i + 1}</span>
-                        <span class="slot-hint">Vazio (clique numa carta abaixo)</span>
-                    </div>
-                `;
-            }
-
+        for (let i = usedSlots; i < capacity; i++) {
+            const slot = document.createElement('div');
+            slot.className = 'default-slot empty';
+            slot.innerHTML = `<div class="slot-placeholder"><span class="slot-number">${i + 1}</span><span class="slot-hint">Espaço livre</span></div>`;
             this.elements.defaultSeqSlots.appendChild(slot);
         }
     }
@@ -440,12 +470,16 @@ class UIManager {
             
             // Ao clicar numa carta da coleção no modal do baralho, adiciona à sequência padrão!
             cardEl.onclick = () => {
-                if (!player.defaultSequence) player.defaultSequence = [null, null, null, null];
-                let targetSlot = player.defaultSequence.findIndex(s => s === null);
-                if (targetSlot === -1) {
-                    targetSlot = 0; // se todos cheios, substitui o primeiro
+                if (!player.defaultSequence) player.defaultSequence = [];
+                const usedSlots = player.defaultSequence.reduce((total, id) => total + (CARD_TEMPLATES[id]?.sequenceSlots || 1), 0);
+                const cardSlots = card.sequenceSlots || 1;
+                const capacity = player.level >= 5 ? 5 : 4;
+                if (usedSlots + cardSlots > capacity) {
+                    this.showToast('A sequência padrão está cheia. Remova uma carta para abrir espaço.');
+                    return;
                 }
-                player.defaultSequence[targetSlot] = card.templateId;
+                const targetSlot = usedSlots;
+                player.defaultSequence.push(card.templateId);
                 SaveManager.saveGame(this.game);
                 audio.cardPlace();
                 this.showToast(`✨ [${card.name}] definida no Slot ${targetSlot + 1} da Sequência Padrão!`);
@@ -513,7 +547,34 @@ class UIManager {
     openShopModal() {
         this.game.state = 'SHOP';
         audio.coin();
+        this.shopCardStock = this.rollShopCards();
         this.elements.shopModal.classList.remove('hidden');
+        this.renderShopItems();
+    }
+
+    rollShopCards() {
+        const stock = [];
+        const templates = Object.keys(CARD_TEMPLATES);
+        while (stock.length < 4) {
+            const card = getRandomCard(templates);
+            if (!stock.some(item => item.cardTemplate === card.templateId)) {
+                const cost = card.rarity.id === 'lendaria' ? 240 : card.rarity.id === 'rara' ? 110 : 50;
+                stock.push({ type: 'card', cardTemplate: card.templateId, cost });
+            }
+        }
+        return stock;
+    }
+
+    rerollShop() {
+        const player = this.game.player;
+        if (!player.spendGold(30)) {
+            this.showToast('Você precisa de 30 moedas para renovar as cartas.');
+            return;
+        }
+        this.shopCardStock = this.rollShopCards();
+        audio.coin();
+        this.updateHUD();
+        this.showToast('🪙 Mariah renovou o estoque de cartas por 30 moedas.');
         this.renderShopItems();
     }
 
@@ -532,10 +593,7 @@ class UIManager {
                 player.heal(15);
                 this.showToast('✨ Seu HP Máximo aumentou em +15!');
             }},
-            { type: 'card', cardTemplate: 'lanca', cost: 50 },
-            { type: 'card', cardTemplate: 'concentrar', cost: 55 },
-            { type: 'card', cardTemplate: 'barreira', cost: 65 },
-            { type: 'card', cardTemplate: 'furor', cost: 95 }
+            ...(this.shopCardStock || this.rollShopCards())
         ];
 
         shopInventory.forEach(item => {
@@ -556,6 +614,7 @@ class UIManager {
                 btnBuy.onclick = () => {
                     if (player.spendGold(item.cost)) {
                         player.addCard(card);
+                        this.shopCardStock = (this.shopCardStock || []).filter(stock => stock.cardTemplate !== item.cardTemplate);
                         audio.coin();
                         this.showToast(`✨ Adicionou "${card.name}" ao seu baralho!`);
                         this.updateHUD();
@@ -597,6 +656,17 @@ class UIManager {
 
             this.elements.shopItemsList.appendChild(itemBox);
         });
+
+        const rerollBox = document.createElement('div');
+        rerollBox.className = 'shop-reroll-box';
+        rerollBox.innerHTML = '<span>Não encontrou o que procura?</span>';
+        const rerollButton = document.createElement('button');
+        rerollButton.className = 'btn-game';
+        rerollButton.textContent = 'Renovar cartas · 30 🪙';
+        rerollButton.disabled = player.gold < 30;
+        rerollButton.onclick = () => this.rerollShop();
+        rerollBox.appendChild(rerollButton);
+        this.elements.shopItemsList.appendChild(rerollBox);
     }
 
     // 4. MODAL DIÁLOGOS
@@ -778,6 +848,7 @@ class UIManager {
             if (target.statuses.bleed > 0) statusBadges += `<span class="status-icon" title="Sangrando">🩸</span>`;
             if (target.statuses.stun > 0) statusBadges += `<span class="status-icon" title="Atordoado">💫</span>`;
             if (target.shield > 0) statusBadges += `<span class="status-icon" title="Escudo">🛡️ ${target.shield}</span>`;
+            if (target.damageReduction > 0) statusBadges += `<span class="status-icon" title="Armadura passiva">🛡️ ${Math.round(target.damageReduction * 100)}%</span>`;
             this.elements.enemyBattleStatuses.innerHTML = statusBadges;
         }
 
@@ -806,12 +877,15 @@ class UIManager {
         const combat = this.game.combatEngine;
         this.elements.combatSequenceRow.innerHTML = '';
         const previewData = combat.previewSequence();
+        this.elements.combatSequenceRow.style.gridTemplateColumns = `repeat(${combat.sequence.length}, minmax(56px, 112px))`;
 
         for (let i = 0; i < combat.sequence.length; i++) {
             const card = combat.sequence[i];
+            if (card && card[combat.sequenceMarkerKey]) continue;
             const slot = document.createElement('div');
             slot.className = `sequence-slot ${card ? 'filled' : 'empty'}`;
             slot.dataset.slotIndex = i;
+            if (card && card.sequenceSlots > 1) slot.classList.add('span-two');
 
             if (card) {
                 const preview = previewData[i];
@@ -839,7 +913,7 @@ class UIManager {
                     btnLeft.title = 'Mover para esquerda';
                     btnLeft.onclick = (e) => {
                         e.stopPropagation();
-                        combat.swapSequenceSlots(i, i - 1);
+                        combat.moveSequenceCard(i, i - 1);
                         this.renderCombatSequence();
                         this.renderCombatHand();
                     };
@@ -858,14 +932,14 @@ class UIManager {
                 };
                 controls.appendChild(btnRemove);
 
-                if (i < combat.sequence.length - 1) {
+                if (i + (card.sequenceSlots || 1) < combat.sequence.length) {
                     const btnRight = document.createElement('button');
                     btnRight.className = 'seq-btn';
                     btnRight.innerHTML = '▶';
                     btnRight.title = 'Mover para direita';
                     btnRight.onclick = (e) => {
                         e.stopPropagation();
-                        combat.swapSequenceSlots(i, i + 1);
+                        combat.moveSequenceCard(i, i + (card.sequenceSlots || 1));
                         this.renderCombatSequence();
                         this.renderCombatHand();
                     };
@@ -901,8 +975,7 @@ class UIManager {
                 if (sourceSlot !== '') {
                     const from = Number(sourceSlot);
                     if (Number.isInteger(from) && from >= 0 && from < combat.sequence.length && from !== i) {
-                        const [movedCard] = combat.sequence.splice(from, 1);
-                        combat.sequence.splice(i, 0, movedCard);
+                        combat.moveSequenceCard(from, i);
                         this.renderCombatSequence();
                         this.renderCombatHand();
                     }
@@ -921,7 +994,7 @@ class UIManager {
         }
 
         // Atualiza banner de combo dinâmico
-        this.renderComboFlowPreview(previewData);
+        // Prévia textual removida para liberar espaço no painel.
 
         // Atualiza estado do botão de executar (bem destacado)
         this.updateExecuteButtonsState();
@@ -931,7 +1004,7 @@ class UIManager {
         const combat = this.game.combatEngine;
         if (!combat) return;
 
-        const hasCards = combat.sequence.some(c => c !== null);
+        const hasCards = combat.sequence.some(c => c && !c[combat.sequenceMarkerKey]);
         const canExecute = hasCards && !combat.isExecuting;
 
         if (this.elements.btnExecuteTurn) {
@@ -946,22 +1019,6 @@ class UIManager {
         if (this.elements.btnExecuteTurnAlt) {
             this.elements.btnExecuteTurnAlt.disabled = !canExecute;
         }
-    }
-
-    renderComboFlowPreview(previewData) {
-        const active = previewData.filter(p => p !== null);
-        if (active.length === 0) {
-            this.elements.combatComboPreview.innerHTML = `<i>Nenhuma carta alinhada. Monte sua sequência da esquerda para a direita!</i>`;
-            return;
-        }
-
-        const flow = active.map(item => {
-            const c = item.card;
-            const extra = item.notes ? ` <span class="combo-glow">(${item.notes})</span>` : '';
-            return `<span class="combo-node type-${c.type.id}">[${c.name}${extra}]</span>`;
-        }).join(' <span class="combo-arrow">➔</span> ');
-
-        this.elements.combatComboPreview.innerHTML = `<b>Sequência Ativa:</b> ${flow}`;
     }
 
     renderCombatHand() {
@@ -997,20 +1054,19 @@ class UIManager {
 
     handleCombatStepUpdate(step) {
         if (step.type === 'card_start') {
-            const slots = this.elements.combatSequenceRow.children;
-            if (slots[step.slotIndex]) {
-                slots[step.slotIndex].classList.add('executing-pulse');
-            }
+            const slot = this.elements.combatSequenceRow.querySelector(`[data-slot-index="${step.slotIndex}"]`);
+            if (slot) slot.classList.add('executing-pulse');
             this.triggerBattleKnightAction(step.card);
         } else if (step.type === 'card_end') {
-            const slots = this.elements.combatSequenceRow.children;
-            if (slots[step.slotIndex]) {
-                slots[step.slotIndex].classList.remove('executing-pulse');
-                slots[step.slotIndex].classList.add('executed');
+            const slot = this.elements.combatSequenceRow.querySelector(`[data-slot-index="${step.slotIndex}"]`);
+            if (slot) {
+                slot.classList.remove('executing-pulse');
+                slot.classList.add('executed');
             }
         } else if (step.type === 'enemy_hurt') {
             this.enemyHurtAnim = 1.0;
             this.addBattleFloatingText(580, 110, `-${step.dmg}`, '#ef4444');
+            if (step.armorBlocked > 0) this.addBattleFloatingText(580, 145, `ARMADURA -${step.armorBlocked}`, '#cbd5e1');
         } else if (step.type === 'enemy_attack') {
             this.enemyActionAnim = 1.0;
             this.knightHurtAnim = 1.0;
@@ -1097,6 +1153,8 @@ class UIManager {
         const H = this.elements.battleSceneCanvas.height;  // 640
 
         ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = '#160d12';
+        ctx.fillRect(0, 0, W, H);
 
         const currentArea = this.game.world.getCurrentArea();
         const theme = currentArea ? currentArea.bgTheme : 'grass_path';
@@ -1388,6 +1446,17 @@ class UIManager {
                 ctx.textBaseline = 'middle';
                 ctx.fillText(target.icon, eX, eY - 20);
             }
+
+            // Inimigos com sprite são desenhados nítidos na camada final da cena.
+            const companionWithoutSprite = combat.enemies.filter(enemy => enemy !== target && !enemy.isDead() && !enemy.sprite);
+            companionWithoutSprite.forEach((enemy, index) => {
+                const supportX = 480 - index * 105;
+                const supportY = enemyPlatY + 14;
+                ctx.font = '38px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(enemy.icon, supportX, supportY);
+            });
             ctx.restore();
 
             // Barra de HP flutuante sobre o inimigo
@@ -1530,6 +1599,63 @@ class UIManager {
         this.renderSharpBattleSprites();
     }
 
+    renderBattleFallback() {
+        const canvas = this.elements.battleSceneCanvas;
+        const ctx = this.battleSceneDisplayCtx;
+        if (!ctx) return;
+        const W = canvas.width;
+        const H = canvas.height;
+        const area = this.game.world.getCurrentArea();
+        const isRuins = area && area.bgTheme === 'ruins_floor';
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        const sky = ctx.createLinearGradient(0, 0, 0, H);
+        sky.addColorStop(0, isRuins ? '#24070b' : '#14304a');
+        sky.addColorStop(0.55, isRuins ? '#7c2020' : '#4383a3');
+        sky.addColorStop(0.56, isRuins ? '#301719' : '#174223');
+        sky.addColorStop(1, '#080d12');
+        ctx.fillStyle = sky;
+        ctx.fillRect(0, 0, W, H);
+
+        const platform = (x, y, rx, ry) => {
+            ctx.fillStyle = 'rgba(0,0,0,.45)';
+            ctx.beginPath(); ctx.ellipse(x, y + 16, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = isRuins ? '#493333' : '#28633c';
+            ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = isRuins ? '#bd6560' : '#76bf68';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+        };
+        platform(580, 190, 105, 28);
+        platform(200, 300, 120, 32);
+
+        const combat = this.game.combatEngine;
+        const target = combat && combat.getTarget();
+        const targetDrawn = target && target.sprite
+            ? this.game.drawEnemySprite(ctx, target, 580, 140 + Math.sin(this.battleTime * 3.8) * 4, target.battleSpriteSize || 100)
+            : false;
+        if (target && !targetDrawn) {
+            ctx.font = '70px monospace'; ctx.textAlign = 'center'; ctx.fillText(target.icon || '👾', 580, 160);
+        }
+        if (combat) {
+            combat.enemies.filter(enemy => enemy !== target && !enemy.isDead()).forEach((enemy, index) => {
+                if (enemy.sprite) this.game.drawEnemySprite(ctx, enemy, 475 - index * 90, 205, enemy.battleSpriteSize || 65);
+                else {
+                    ctx.font = '42px monospace'; ctx.textAlign = 'center'; ctx.fillText(enemy.icon || '👾', 475 - index * 90, 205);
+                }
+            });
+        }
+        const player = this.game.player;
+        const mage = player.classId === 'mage';
+        const sprite = mage ? this.game.mageSprite : this.game.playerBodySprite;
+        if (sprite && (sprite.complete === undefined || sprite.complete) && (sprite.naturalWidth || sprite.width)) {
+            this.game.drawPlayerCharacter(ctx, 200, (mage ? 280 : 270) + Math.sin(this.battleTime * 3) * 2, mage ? 200 : 170, { horizontalScale: 1 });
+        } else {
+            ctx.font = '66px monospace'; ctx.textAlign = 'center'; ctx.fillText(mage ? '🧙' : '🛡️', 200, 275);
+        }
+        ctx.restore();
+    }
+
     renderSharpBattleSprites() {
         const ctx = this.battleSceneDisplayCtx;
         const combat = this.game.combatEngine;
@@ -1540,6 +1666,8 @@ class UIManager {
             ? (canvasBounds.height / ctx.canvas.height) / (canvasBounds.width / ctx.canvas.width)
             : 1;
 
+        const visibleEnemies = combat ? combat.enemies.filter(enemy => !enemy.isDead()) : [];
+        const shouldFaceLeft = enemy => ['aranha', 'esqueleto', 'mago', 'necromante', 'necromancer'].includes(enemy.typeId);
         if (target && !target.isDead() && target.sprite) {
             let eX = 580;
             let eY = 160 - 26 + Math.sin(this.battleTime * 3.8) * 4;
@@ -1560,7 +1688,8 @@ class UIManager {
                 eX,
                 eY - 20,
                 target.battleSpriteSize || (target.isBoss ? 78 : 68),
-                horizontalScale
+                horizontalScale,
+                shouldFaceLeft(target) ? true : null
             )) {
                 const size = target.isBoss ? 72 : 58;
                 ctx.font = `${size}px monospace`;
@@ -1570,6 +1699,21 @@ class UIManager {
             }
             ctx.restore();
         }
+
+        const supportingEnemies = visibleEnemies.filter(enemy => enemy !== target && enemy.sprite);
+        supportingEnemies.forEach((enemy, index) => {
+            const x = 490 - index * 105;
+            const y = 205 + (index % 2) * 10 + Math.sin(this.battleTime * 3.4 + index) * 3;
+            this.game.drawEnemySprite(
+                ctx,
+                enemy,
+                x,
+                y,
+                enemy.battleSpriteSize || 58,
+                horizontalScale,
+                shouldFaceLeft(enemy) ? true : null
+            );
+        });
 
         const mageSelected = this.game.player.classId === 'mage';
         const activeSprite = mageSelected ? this.game.mageSprite : this.game.playerBodySprite;
@@ -1586,7 +1730,7 @@ class UIManager {
             }
             if (this.knightHurtAnim > 0) kX -= Math.sin(this.knightHurtAnim * 28) * 12;
 
-            const height = mageSelected ? 184 : 170;
+            const height = mageSelected ? 202 : 170;
             ctx.save();
             if (this.knightHurtAnim > 0) {
                 ctx.filter = `drop-shadow(0 0 16px #ef4444) brightness(${1.3 + this.knightHurtAnim * 0.5})`;
@@ -1602,21 +1746,47 @@ class UIManager {
 
     handleCombatFinished(result) {
         if (result.result === 'victory') {
-            this.openRewardModal(result.gold, result.rewardCards, result.experience, result.levelUps);
+            this.openRewardModal(result.gold, result.rewardCards, result.experience, result.levelUps, result.rewardCardPicks || 1);
         } else if (result.result === 'defeat') {
             this.elements.defeatModal.classList.remove('hidden');
         }
     }
 
     // 6. MODAL RECOMPENSA (DRAFT)
-    openRewardModal(gold, cards, experience = 0, levelUps = []) {
+    openRewardModal(gold, cards, experience = 0, levelUps = [], requiredPicks = 1) {
         const player = this.game.player;
         const progressText = `+${experience} XP · Nv. ${player.level} (${player.experience}/${player.getExperienceToNextLevel()} XP)`;
         const levelText = levelUps.length
-            ? ` Subiu ${levelUps.length} nível(is)! +${levelUps.length * 10} de vida máxima e +${levelUps.length * 30} moedas.`
+            ? ` Subiu ${levelUps.length} nível(is)! +${levelUps.length * 10} de vida máxima e +${levelUps.length * 30} moedas.${levelUps.some(level => level.level >= 5) ? ' Desbloqueou o 5º espaço da sequência!' : ''}`
             : '';
         this.elements.rewardGoldText.textContent = `+${gold} 🪙 Moedas · ${progressText}${levelText}`;
         this.elements.rewardCardsRow.innerHTML = '';
+        const prompt = document.getElementById('rewardCardPrompt');
+        const selectedCards = new Set();
+        const cardButtons = new Map();
+        this.pendingRewardClaim = null;
+        const updatePrompt = () => {
+            if (prompt) prompt.textContent = `Escolha ${requiredPicks} carta${requiredPicks > 1 ? 's' : ''} para adicionar ao baralho (${selectedCards.size}/${requiredPicks}):`;
+            for (const [card, button] of cardButtons) {
+                const selected = selectedCards.has(card);
+                button.classList.toggle('selected', selected);
+                button.textContent = selected ? 'Selecionada' : 'Escolher Carta';
+            }
+        };
+        const claimSelectedCards = () => {
+            if (selectedCards.size !== requiredPicks) {
+                this.showToast(`Selecione ${requiredPicks} cartas para confirmar.`);
+                return;
+            }
+            const names = [...selectedCards].map(card => card.name);
+            for (const card of selectedCards) this.game.player.addCard(card);
+            audio.cardSelect();
+            this.showToast(`✨ Adicionou ao baralho: ${names.join(', ')}!`);
+            this.pendingRewardClaim = null;
+            this.closeModals();
+            this.game.returnToWorldAfterCombat();
+        };
+        this.pendingRewardClaim = claimSelectedCards;
 
         cards.forEach(card => {
             const draftBox = document.createElement('div');
@@ -1628,22 +1798,50 @@ class UIManager {
             btnPick.className = 'btn-game btn-pick';
             btnPick.textContent = 'Escolher Carta';
             btnPick.onclick = () => {
-                this.game.player.addCard(card);
-                audio.cardSelect();
-                this.showToast(`✨ Adicionou "${card.name}" ao seu baralho!`);
-                this.closeModals();
-                this.game.returnToWorldAfterCombat();
+                if (selectedCards.has(card)) {
+                    selectedCards.delete(card);
+                } else if (selectedCards.size < requiredPicks) {
+                    selectedCards.add(card);
+                } else {
+                    return;
+                }
+                updatePrompt();
             };
+            cardButtons.set(card, btnPick);
 
             draftBox.appendChild(cardEl);
             draftBox.appendChild(btnPick);
             this.elements.rewardCardsRow.appendChild(draftBox);
         });
 
+        updatePrompt();
         this.elements.rewardModal.classList.remove('hidden');
     }
 
-    // Construtor Visual de Carta com Estilo Balatro Medieval
+    getCardEffectSummary(card) {
+        const summaries = {
+            afia: 'Aprimora o próximo ataque com arma.',
+            encantar: 'Fortalece a próxima arma e causa queimadura.',
+            concentrar: 'Aumenta o poder das magias e concede escudo.',
+            repetidor: 'Repete a próxima carta uma vez.',
+            barreira: 'Escudo e reflexão de dano.',
+            cura: `Cura ${card.value} de vida.`,
+            escudo: `Bloqueia ${card.value} de dano.`,
+            veneno: `Dano ${card.value} e envenena.`,
+            fogo: `Dano ${card.value} e queimadura.`,
+            gelo: `Dano ${card.value} e congela.`,
+            raio: `Dano ${card.value} e chance de atordoar.`,
+            lanca: `Dano ${card.value} e atinge outro alvo.`,
+            arco: `Dano ${card.value}; atravessa escudo.`,
+            apocalipse: `Dano ${card.value} em todos e cura.`,
+            furor: `Dano ${card.value}; aumenta com pouca vida.`
+        };
+        return summaries[card.templateId] || (card.type.id === 'ataque' || card.type.id === 'magia'
+            ? `Dano ${card.value}.`
+            : `${card.type.name} · efeito ${card.value}.`);
+    }
+
+    // Construtor Visual de Carta compacto; detalhes completos aparecem no hover.
     createCardElement(card, options = {}) {
         const el = document.createElement('div');
         el.className = `game-card rarity-${card.rarity.id} type-${card.type.id} ${options.inSequence ? 'card-compact' : ''}`;
@@ -1657,14 +1855,14 @@ class UIManager {
                 <span class="card-type-tag" style="background: ${card.type.tagColor};">${card.type.icon} ${card.type.name}</span>
                 ${options.showLevel ? `<span class="card-stars">${stars}</span>` : ''}
             </div>
+            <div class="card-rarity-line" style="color:${card.rarity.color};">${card.rarity.name}</div>
             <div class="card-art-box">
                 <div class="card-icon-art">${card.icon}</div>
                 <div class="card-value-badge">${card.value}</div>
             </div>
             <div class="card-body">
                 <div class="card-title">${card.name}</div>
-                <div class="card-desc">${card.description}</div>
-                ${card.comboText ? `<div class="card-combo-hint">💡 ${card.comboText}</div>` : ''}
+                <div class="card-desc">${this.getCardEffectSummary(card)}</div>
             </div>
         `;
 
